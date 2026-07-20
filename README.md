@@ -13,25 +13,34 @@ A live, self-refreshing sales dashboard that reads directly from a Google Sheet
 - **Drill-down** — click any number cell to see the underlying deals; click a deal
   name to open it in Clarify in a new tab.
 
-## Running it
+## Deployment (Vercel)
 
-The dashboard fetches the sheet client-side via Google's CSV endpoint, which only
-allows cross-origin reads from an `http(s)` origin — so it must be served over HTTP,
-not opened as a `file://` double-click.
+This is a pure static site — no build step. Vercel serves `index.html` at the
+root. `vercel.json` disables framework detection and sets caching headers. Any
+push to `main` auto-deploys.
+
+The dashboard fetches the sheet client-side via Google's CSV endpoint, which
+reflects CORS for `http(s)` origins — so it works on Vercel (https) out of the box.
+
+## Running it locally
+
+Google's CSV endpoint does not allow reads from a `file://` origin, so it must be
+served over HTTP — don't just double-click the file.
 
 ```bash
 python3 serve.py
 ```
 
-Then open <http://127.0.0.1:8777/dashboard.html>.
+Then open <http://127.0.0.1:8777/>.
 
 ## Files
 
 | File | Purpose |
 |------|---------|
-| `dashboard.html` | The dashboard (self-contained; all logic inline). |
-| `serve.py` | Tiny static file server on port 8777. |
+| `index.html` | The dashboard (self-contained; all logic inline). |
 | `chart.min.js` | Chart.js (bundled locally). |
+| `vercel.json` | Static-hosting config for Vercel. |
+| `serve.py` | Tiny static file server for local use (port 8777). |
 
 ## Data source
 
