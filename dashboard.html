@@ -1,0 +1,505 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sales Dashboard</title>
+<script src="./chart.min.js"></script>
+<style>
+  :root{
+    color-scheme: light;
+    --plane:#f9f9f7; --surface:#fcfcfb;
+    --ink:#0b0b0b; --ink2:#52514e; --muted:#898781;
+    --grid:#e1e0d9; --axis:#c3c2b7; --border:rgba(11,11,11,0.10);
+    --accent:#2a78d6; --good:#0ca30c; --crit:#d03b3b;
+    --heat:42,120,214;
+    --shadow:0 1px 2px rgba(11,11,11,.04),0 2px 8px rgba(11,11,11,.05);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:where(:not([data-theme="light"])){
+      color-scheme: dark;
+      --plane:#0d0d0d; --surface:#1a1a19;
+      --ink:#fff; --ink2:#c3c2b7; --muted:#898781;
+      --grid:#2c2c2a; --axis:#383835; --border:rgba(255,255,255,0.10);
+      --accent:#3987e5; --good:#0ca30c; --crit:#d03b3b;
+      --heat:57,135,229;
+      --shadow:0 1px 2px rgba(0,0,0,.3),0 2px 10px rgba(0,0,0,.4);
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--plane);color:var(--ink);
+    font-family:system-ui,-apple-system,"Segoe UI",sans-serif;font-size:14px;line-height:1.45;}
+  .wrap{max-width:1400px;margin:0 auto;padding:20px 22px 56px;}
+
+  header.top{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:20px;}
+  .title h1{margin:0;font-size:22px;font-weight:700;letter-spacing:-.01em;}
+  .title p{margin:2px 0 0;color:var(--ink2);font-size:12.5px;}
+  .status{display:flex;align-items:center;gap:14px;flex-wrap:wrap;font-size:12.5px;color:var(--ink2);}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--good);display:inline-block;animation:pulse 2s infinite;}
+  .dot.err{background:var(--crit);animation:none;}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(12,163,12,.45)}70%{box-shadow:0 0 0 7px rgba(12,163,12,0)}100%{box-shadow:0 0 0 0 rgba(12,163,12,0)}}
+  .btn{border:1px solid var(--border);background:var(--surface);color:var(--ink);
+    border-radius:8px;padding:6px 12px;font-size:12.5px;cursor:pointer;font-weight:600;}
+  .btn:hover{border-color:var(--accent);color:var(--accent);}
+
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:22px;}
+  .kpi{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;box-shadow:var(--shadow);}
+  .kpi .label{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;font-weight:600;}
+  .kpi .val{font-size:24px;font-weight:700;margin-top:5px;letter-spacing:-.01em;}
+  .kpi .sub{font-size:11.5px;color:var(--ink2);margin-top:2px;}
+
+  .section-label{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);
+    margin:26px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--grid);}
+
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 16px 14px;box-shadow:var(--shadow);}
+  .card .chead{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px;}
+  .card h3{margin:0;font-size:14px;font-weight:650;}
+  .hint{font-size:11.5px;color:var(--muted);}
+  .canvas-wrap{position:relative;min-height:360px;}
+
+  .filterbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px;}
+  .filterbar .flabel{font-size:11.5px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin-right:2px;}
+  .chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:20px;
+    padding:4px 11px;font-size:12px;cursor:pointer;user-select:none;color:var(--ink2);background:var(--surface);}
+  .chip .sw{width:9px;height:9px;border-radius:50%;flex:none;}
+  .chip.on{color:var(--ink);border-color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,var(--surface));}
+  .chip.off{opacity:.5;}
+  .chip .sw.off{background:var(--muted)!important;}
+  .mini{font-size:11.5px;color:var(--muted);cursor:pointer;text-decoration:underline;background:none;border:0;padding:0;}
+  .mini:hover{color:var(--accent);}
+
+  .summary{display:flex;gap:26px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid var(--grid);}
+  .summary div{font-size:12px;color:var(--muted);}
+  .summary b{display:block;font-size:19px;color:var(--ink);font-weight:700;margin-top:2px;}
+
+  .tbl-scroll{overflow-x:auto;}
+  table.st{border-collapse:collapse;width:100%;font-size:12.5px;}
+  table.st th,table.st td{padding:7px 9px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--grid);}
+  table.st th{color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.03em;position:sticky;top:0;background:var(--surface);vertical-align:bottom;}
+  table.st th:first-child,table.st td:first-child{text-align:left;font-weight:600;position:sticky;left:0;background:var(--surface);z-index:1;}
+  table.st td{vertical-align:top;color:var(--ink);}
+  table.st td .c{font-weight:700;font-variant-numeric:tabular-nums;}
+  table.st td .a{font-size:11px;color:var(--ink2);font-variant-numeric:tabular-nums;margin-top:1px;}
+  table.st .stagehead{display:inline-flex;align-items:center;gap:5px;}
+  table.st .stagehead .sw{width:8px;height:8px;border-radius:2px;flex:none;}
+  table.st tr:hover td{background:color-mix(in srgb,var(--accent) 5%,var(--surface));}
+  table.st td.tot,table.st th.tot{border-left:1px solid var(--grid);}
+  table.st td.tot .c{color:var(--accent);}
+  table.st tfoot td{border-top:2px solid var(--axis);border-bottom:0;}
+  table.st tfoot td .c{color:var(--ink);}
+  table.st td.z{color:var(--muted);opacity:.4;font-weight:400;}
+  .nodata{color:var(--muted);padding:14px 6px;}
+
+  /* clickable cells + drill-down modal */
+  table.st td.clk{cursor:pointer;}
+  table.st td.clk:hover{outline:2px solid var(--accent);outline-offset:-2px;border-radius:4px;}
+  .overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;z-index:50;padding:24px;}
+  .overlay.open{display:flex;}
+  .modal{background:var(--surface);border:1px solid var(--border);border-radius:14px;box-shadow:0 12px 44px rgba(0,0,0,.35);
+    max-width:1040px;width:100%;max-height:86vh;display:flex;flex-direction:column;overflow:hidden;}
+  .modal .mhead{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:16px 18px;border-bottom:1px solid var(--grid);}
+  .modal .mhead h3{margin:0;font-size:15px;font-weight:700;}
+  .modal .mhead .msub{font-size:12px;color:var(--muted);margin-top:3px;}
+  .modal .mclose{border:1px solid var(--border);background:var(--surface);color:var(--ink);border-radius:8px;width:30px;height:30px;cursor:pointer;font-size:17px;line-height:1;flex:none;}
+  .modal .mclose:hover{border-color:var(--accent);color:var(--accent);}
+  .modal .mbody{overflow:auto;}
+  table.dl{border-collapse:collapse;width:100%;font-size:12.5px;}
+  table.dl th,table.dl td{padding:8px 12px;text-align:left;white-space:nowrap;border-bottom:1px solid var(--grid);}
+  table.dl th{position:sticky;top:0;background:var(--surface);color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.03em;font-weight:600;}
+  table.dl td.num{text-align:right;font-variant-numeric:tabular-nums;}
+  table.dl td.dealcell{white-space:normal;min-width:220px;max-width:340px;}
+  table.dl a.dname{color:var(--accent);font-weight:600;text-decoration:none;}
+  table.dl a.dname:hover{text-decoration:underline;}
+  table.dl tr:hover td{background:color-mix(in srgb,var(--accent) 5%,var(--surface));}
+  .modal .mfoot{padding:10px 18px;border-top:1px solid var(--grid);font-size:11.5px;color:var(--muted);}
+
+  footer{margin-top:30px;color:var(--muted);font-size:11.5px;text-align:center;}
+  a{color:var(--accent);}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="title">
+      <h1>Sales Dashboard</h1>
+      <p>Live from Google Sheets &middot; deals, meetings &amp; partners</p>
+    </div>
+    <div class="status">
+      <span><span class="dot" id="dot"></span> <span id="statusText">Loading…</span></span>
+      <span id="updated"></span>
+      <span id="countdown"></span>
+      <button class="btn" id="refreshBtn">Refresh now</button>
+    </div>
+  </header>
+
+  <div class="kpis" id="kpis"></div>
+
+  <div class="section-label">Pipeline by stage</div>
+  <div class="card">
+    <div class="chead">
+      <h3>Deals by stage</h3>
+      <span class="hint">Each bar shows total amount &amp; deal count</span>
+    </div>
+    <div class="filterbar" id="fb_pipeline">
+      <span class="flabel">Stages</span>
+      <span class="chiphost" style="display:contents"></span>
+      <button class="mini selOpen">Open only</button>
+      <button class="mini selAll">All</button>
+    </div>
+    <div class="canvas-wrap"><canvas id="c_pipeline"></canvas></div>
+    <div class="summary" id="pipeSummary"></div>
+  </div>
+
+  <div class="section-label">Deals by AE India, at each stage</div>
+  <div class="card">
+    <div class="chead"><h3>AE India &times; stage</h3><span class="hint">Each cell: deal count (bold) &amp; amount below</span></div>
+    <div class="filterbar" id="fb_aeIndia">
+      <span class="flabel">Stages</span><span class="chiphost" style="display:contents"></span>
+      <button class="mini selOpen">Open only</button><button class="mini selAll">All</button>
+    </div>
+    <div class="tbl-scroll" id="t_aeIndia"></div>
+  </div>
+
+  <div class="section-label">Deals by partner, at each stage</div>
+  <div class="card">
+    <div class="chead"><h3>Partner &times; stage</h3><span class="hint">Each cell: deal count (bold) &amp; amount below</span></div>
+    <div class="filterbar" id="fb_partner">
+      <span class="flabel">Stages</span><span class="chiphost" style="display:contents"></span>
+      <button class="mini selOpen">Open only</button><button class="mini selAll">All</button>
+    </div>
+    <div class="tbl-scroll" id="t_partner"></div>
+  </div>
+
+  <footer>
+    Auto-refreshes every 60&nbsp;seconds from the source
+    <a href="https://docs.google.com/spreadsheets/d/1_pGb5SR2Ef3Jkk2EfgfVesdcA5qohBYtMD6wpDCc2L4/edit" target="_blank" rel="noopener">Google Sheet</a>.
+  </footer>
+</div>
+
+<div class="overlay" id="overlay">
+  <div class="modal" role="dialog" aria-modal="true">
+    <div class="mhead">
+      <div><h3 id="mTitle"></h3><div class="msub" id="mSub"></div></div>
+      <button class="mclose" id="mClose" aria-label="Close">&times;</button>
+    </div>
+    <div class="mbody" id="mBody"></div>
+    <div class="mfoot">Click a deal name to open it in Clarify in a new tab.</div>
+  </div>
+</div>
+
+<script>
+/* ============================ CONFIG ============================ */
+const SHEET_ID = "1_pGb5SR2Ef3Jkk2EfgfVesdcA5qohBYtMD6wpDCc2L4";
+const REFRESH_MS = 60000;
+const csvUrl = (sheet) =>
+  `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheet)}&_=${Date.now()}`;
+
+const STAGE_ORDER = [
+  "0. Potential","1. Interest Generation","2. Demo","3. Trial","4. Proposal",
+  "5. Negotiation","6. Contracts","7. POC","8. Closed Won",
+  "Closed LTO","Closed Lost","Churned"
+];
+const STAGE_COLOR = {
+  "0. Potential":"#86b6ef","1. Interest Generation":"#5598e7","2. Demo":"#3987e5",
+  "3. Trial":"#2a78d6","4. Proposal":"#256abf","5. Negotiation":"#1c5cab",
+  "6. Contracts":"#184f95","7. POC":"#104281","8. Closed Won":"#0ca30c",
+  "Closed LTO":"#898781","Closed Lost":"#d03b3b","Churned":"#eb6834"
+};
+const OPEN_STAGES = ["1. Interest Generation","2. Demo","3. Trial","4. Proposal",
+  "5. Negotiation","6. Contracts","7. POC"];
+const WON = "8. Closed Won";
+const LOST = new Set(["Closed Lost","Closed LTO","Churned"]);
+
+/* ============================ THEME HELPERS ============================ */
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+function chartTheme(){
+  return {ink:css('--ink'),ink2:css('--ink2'),muted:css('--muted'),grid:css('--grid'),surface:css('--surface')};
+}
+
+/* ============================ CSV PARSER ============================ */
+function parseCSV(text){
+  const rows=[]; let row=[], field="", i=0, q=false;
+  while(i<text.length){
+    const c=text[i];
+    if(q){ if(c==='"'){ if(text[i+1]==='"'){field+='"';i+=2;continue;} q=false;i++;continue;} field+=c;i++;continue;}
+    if(c==='"'){q=true;i++;continue;}
+    if(c===','){row.push(field);field="";i++;continue;}
+    if(c==='\r'){i++;continue;}
+    if(c==='\n'){row.push(field);rows.push(row);row=[];field="";i++;continue;}
+    field+=c;i++;
+  }
+  if(field.length||row.length){row.push(field);rows.push(row);}
+  return rows;
+}
+function toObjects(text){
+  const rows=parseCSV(text); if(!rows.length) return [];
+  const head=rows[0];
+  return rows.slice(1).map(r=>{const o={};head.forEach((h,idx)=>o[h]=r[idx]??"");return o;});
+}
+
+/* ============================ FORMAT ============================ */
+const num=(x)=>{const n=parseFloat(x);return isNaN(n)?0:n;};
+function money(v){
+  const a=Math.abs(v);
+  if(a>=1e6) return "$"+(v/1e6).toFixed(a>=1e7?0:1)+"M";
+  if(a>=1e3) return "$"+(v/1e3).toFixed(a>=1e4?0:1)+"K";
+  return "$"+Math.round(v);
+}
+const nameOf=(email)=> email? email.split("@")[0].replace(/(^|[._-])(\w)/g,(m,s,ch)=>(s?" ":"")+ch.toUpperCase()) : email;
+const esc=(s)=>String(s??"").replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtDate=(s)=>{s=(s||"").slice(0,10);return /^\d{4}-\d{2}-\d{2}$/.test(s)?s:"—";};
+const CLARIFY=(id)=>`https://app.clarify.ai/workspaces/sprouts-ai/objects/deal/records/${id}`;
+
+/* ============================ STATE ============================ */
+let DATA={deals:[],meetings:[],partners:[]};
+let partnerName={};
+let stageFilter=new Set(OPEN_STAGES);            // pipeline chart: open by default
+const tableFilters={                              // tables: open pipeline by default
+  aeIndia:new Set(OPEN_STAGES),
+  partner:new Set(OPEN_STAGES)
+};
+
+/* ============================ SHARED CHIP BAR ============================ */
+function renderChipBar(barEl, filterSet, rerender){
+  const host=barEl.querySelector('.chiphost');
+  host.innerHTML=STAGE_ORDER.map(st=>{
+    const on=filterSet.has(st);
+    return `<span class="chip ${on?'on':'off'}" data-st="${st}"><span class="sw ${on?'':'off'}" style="background:${STAGE_COLOR[st]}"></span>${st}</span>`;
+  }).join('');
+  host.querySelectorAll('.chip').forEach(ch=>ch.onclick=()=>{
+    const st=ch.dataset.st;
+    filterSet.has(st)?filterSet.delete(st):filterSet.add(st);
+    renderChipBar(barEl,filterSet,rerender); rerender();
+  });
+  barEl.querySelector('.selOpen').onclick=()=>{filterSet.clear();OPEN_STAGES.forEach(s=>filterSet.add(s));renderChipBar(barEl,filterSet,rerender);rerender();};
+  barEl.querySelector('.selAll').onclick=()=>{filterSet.clear();STAGE_ORDER.forEach(s=>filterSet.add(s));renderChipBar(barEl,filterSet,rerender);rerender();};
+}
+
+/* ============================ AGGREGATION ============================ */
+/* raw per-cell count & amount for all stages; totals are applied per active filter */
+function stageMatrixRaw(deals, keyFn){
+  const cCnt={},cAmt={},keys=new Set();
+  deals.forEach(d=>{
+    const k=keyFn(d); if(k===null||k===undefined||k==="") return;
+    const st=d.stage; if(!STAGE_COLOR[st]) return;
+    const a=num(d.amount);
+    keys.add(k);
+    (cCnt[k]=cCnt[k]||{})[st]=(cCnt[k][st]||0)+1;
+    (cAmt[k]=cAmt[k]||{})[st]=(cAmt[k][st]||0)+a;
+  });
+  return {keys:[...keys],cCnt,cAmt};
+}
+
+/* ============================ TABLE RENDER ============================ */
+function renderTable(hostId, keyFn, headerLabel, filterKey){
+  const host=document.getElementById(hostId);
+  const {keys,cCnt,cAmt}=stageMatrixRaw(DATA.deals, keyFn);
+  const filter=tableFilters[filterKey];
+  const cols=STAGE_ORDER.filter(st=>filter.has(st));
+  if(!cols.length){host.innerHTML='<p class="nodata">Select at least one stage to display.</p>';return;}
+  // row totals over selected stages only
+  const rowCnt={},rowAmt={};
+  keys.forEach(k=>{let c=0,a=0;cols.forEach(st=>{c+=cCnt[k]?.[st]||0;a+=cAmt[k]?.[st]||0;});rowCnt[k]=c;rowAmt[k]=a;});
+  const rows=keys.filter(k=>rowCnt[k]>0).sort((x,y)=>rowCnt[y]-rowCnt[x]);
+  if(!rows.length){host.innerHTML='<p class="nodata">No deals in the selected stages.</p>';return;}
+  // column + grand totals
+  const colCnt={},colAmt={};
+  cols.forEach(st=>{let c=0,a=0;rows.forEach(k=>{c+=cCnt[k]?.[st]||0;a+=cAmt[k]?.[st]||0;});colCnt[st]=c;colAmt[st]=a;});
+  const gCnt=rows.reduce((s,k)=>s+rowCnt[k],0), gAmt=rows.reduce((s,k)=>s+rowAmt[k],0);
+  let maxCnt=0; rows.forEach(k=>cols.forEach(st=>{const v=cCnt[k]?.[st]||0;if(v>maxCnt)maxCnt=v;}));
+
+  const attr=(row,stage)=>`data-clk="1" data-tbl="${filterKey}" data-row="${esc(row)}" data-stage="${esc(stage)}"`;
+  const cell=(cnt,amt,row,stage)=>{
+    if(!cnt) return '<td class="z">–</td>';
+    const a=(cnt/maxCnt*0.28).toFixed(3);
+    return `<td class="clk" ${attr(row,stage)} style="background:rgba(var(--heat),${a})"><div class="c">${cnt.toLocaleString()}</div><div class="a">${money(amt)}</div></td>`;
+  };
+  const totCell=(cnt,amt,cls,row,stage)=> cnt
+    ? `<td class="clk ${cls}" ${attr(row,stage)}><div class="c">${cnt.toLocaleString()}</div><div class="a">${money(amt)}</div></td>`
+    : `<td class="${cls} z">–</td>`;
+
+  let h='<table class="st"><thead><tr><th>'+esc(headerLabel)+'</th>';
+  cols.forEach(c=>{h+=`<th><span class="stagehead"><span class="sw" style="background:${STAGE_COLOR[c]}"></span>${c}</span></th>`;});
+  h+='<th class="tot">Total</th></tr></thead><tbody>';
+  rows.forEach(r=>{
+    h+='<tr><td>'+esc(r)+'</td>';
+    cols.forEach(c=>{h+=cell(cCnt[r]?.[c]||0, cAmt[r]?.[c]||0, r, c);});
+    h+=totCell(rowCnt[r], rowAmt[r], "tot", r, "*")+'</tr>';
+  });
+  h+='</tbody><tfoot><tr><td>Total</td>';
+  cols.forEach(c=>{h+=totCell(colCnt[c], colAmt[c], "", "*", c);});
+  h+=totCell(gCnt, gAmt, "tot", "*", "*")+'</tr></tfoot></table>';
+  host.innerHTML=h;
+}
+const renderAeIndia=()=>renderTable("t_aeIndia", d=>nameOf(d.ae_india), "AE India", "aeIndia");
+const renderPartner =()=>renderTable("t_partner", d=>partnerName[d.partner_id]||"", "Partner", "partner");
+
+/* ============================ DRILL-DOWN MODAL ============================ */
+const KEYFN={ aeIndia:d=>nameOf(d.ae_india), partner:d=>partnerName[d.partner_id]||"" };
+function openCellModal(tbl,row,stage){
+  const kf=KEYFN[tbl], sel=tableFilters[tbl];
+  let list=DATA.deals.filter(d=>{
+    const k=kf(d); if(!k) return false; if(!STAGE_COLOR[d.stage]) return false;
+    if(row!=="*" && k!==row) return false;
+    if(stage==="*"){ if(!sel.has(d.stage)) return false; } else if(d.stage!==stage) return false;
+    return true;
+  });
+  list.sort((a,b)=>num(b.amount)-num(a.amount));
+  const label=(tbl==="partner"?"partners":"AE India");
+  const tot=list.reduce((s,d)=>s+num(d.amount),0);
+  document.getElementById('mTitle').textContent=
+    (row==="*"?("All "+label):row)+"  ·  "+(stage==="*"?"selected stages":stage);
+  document.getElementById('mSub').textContent=
+    `${list.length} deal${list.length===1?'':'s'} · ${money(tot)} total`;
+
+  const cols=[['Deal','dealcell'],['Amount','num'],['Stage',''],['Close date',''],
+    ['Source',''],['Owner',''],['Region',''],['Next activity','']];
+  let h='<table class="dl"><thead><tr>'+cols.map(c=>`<th class="${c[1]}">${c[0]}</th>`).join('')+'</tr></thead><tbody>';
+  list.forEach(d=>{
+    const owner=d.ae_india||d.owner_email||d.ae_usa||'—';
+    h+='<tr>'+
+      `<td class="dealcell"><a class="dname" href="${CLARIFY(d.id)}" target="_blank" rel="noopener">${esc(d.name||'(untitled deal)')}</a></td>`+
+      `<td class="num">${money(num(d.amount))}</td>`+
+      `<td>${esc(d.stage)}</td>`+
+      `<td>${fmtDate(d.close_date)}</td>`+
+      `<td>${esc(d.source||'—')}</td>`+
+      `<td>${esc(owner)}</td>`+
+      `<td>${esc(d.region||'—')}</td>`+
+      `<td>${fmtDate(d.next_activity_date)}</td>`+
+    '</tr>';
+  });
+  h+='</tbody></table>';
+  document.getElementById('mBody').innerHTML = list.length ? h : '<p class="nodata" style="padding:18px">No deals.</p>';
+  document.getElementById('overlay').classList.add('open');
+}
+function closeModal(){ document.getElementById('overlay').classList.remove('open'); }
+
+/* ============================ PIPELINE CHART ============================ */
+const barBoth={
+  id:'barBoth',
+  afterDatasetsDraw(chart){
+    const {ctx}=chart, meta=chart.getDatasetMeta(0);
+    const counts=chart.$counts||[], amounts=chart.$amounts||[];
+    ctx.save();
+    ctx.font='600 11px system-ui,-apple-system,sans-serif';
+    ctx.textBaseline='middle';
+    meta.data.forEach((bar,i)=>{
+      const cnt=counts[i]||0, amt=amounts[i]||0;
+      const label=`${money(amt)}  ·  ${cnt.toLocaleString()} deal${cnt===1?'':'s'}`;
+      const w=ctx.measureText(label).width;
+      const barLen=bar.x-bar.base;
+      if(barLen > w+16){ ctx.fillStyle='#fff'; ctx.textAlign='right'; ctx.fillText(label, bar.x-8, bar.y); }
+      else{ ctx.fillStyle=css('--ink2'); ctx.textAlign='left'; ctx.fillText(label, bar.x+8, bar.y); }
+    });
+    ctx.restore();
+  }
+};
+let pipeChart=null;
+function renderPipeline(){
+  const t=chartTheme();
+  const labels=STAGE_ORDER.filter(st=>stageFilter.has(st));
+  const counts=labels.map(st=>DATA.deals.filter(d=>d.stage===st).length);
+  const amounts=labels.map(st=>DATA.deals.filter(d=>d.stage===st).reduce((s,d)=>s+num(d.amount),0));
+  if(pipeChart) pipeChart.destroy();
+  pipeChart=new Chart(document.getElementById('c_pipeline'),{type:'bar',
+    data:{labels,datasets:[{data:amounts,backgroundColor:labels.map(l=>STAGE_COLOR[l]),
+      borderRadius:4,borderSkipped:false,maxBarThickness:40}]},
+    options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',animation:{duration:300},
+      layout:{padding:{right:150}},
+      plugins:{legend:{display:false},
+        tooltip:{callbacks:{label:(ctx)=>{const i=ctx.dataIndex;return "  "+counts[i].toLocaleString()+" deals   ·   "+money(amounts[i]);}}}},
+      scales:{
+        x:{grid:{color:t.grid,drawBorder:false},ticks:{color:t.muted,font:{size:11},callback:(v)=>money(v)},
+          title:{display:true,text:'Deal amount',color:t.muted,font:{size:11}}},
+        y:{grid:{color:'transparent',drawBorder:false},ticks:{color:t.ink2,font:{size:12}}}
+      }},
+    plugins:[barBoth]});
+  pipeChart.$counts=counts; pipeChart.$amounts=amounts;
+  pipeChart.update();
+
+  const selDeals=DATA.deals.filter(d=>stageFilter.has(d.stage));
+  const totAmt=selDeals.reduce((s,d)=>s+num(d.amount),0);
+  document.getElementById('pipeSummary').innerHTML=
+    `<div>Selected stages<b>${stageFilter.size} of ${STAGE_ORDER.length}</b></div>`+
+    `<div>Total deals<b>${selDeals.length.toLocaleString()}</b></div>`+
+    `<div>Total amount<b>${money(totAmt)}</b></div>`;
+}
+
+/* ============================ KPIs ============================ */
+function renderKPIs(){
+  const D=DATA.deals;
+  const open=D.filter(d=>OPEN_STAGES.includes(d.stage));
+  const won=D.filter(d=>d.stage===WON);
+  const lost=D.filter(d=>LOST.has(d.stage));
+  const openAmt=open.reduce((s,d)=>s+num(d.amount),0);
+  const wonAmt=won.reduce((s,d)=>s+num(d.amount),0);
+  const winRate=(won.length+lost.length)?(won.length/(won.length+lost.length)*100):0;
+  const avgWon=won.length?wonAmt/won.length:0;
+  const items=[
+    {label:"Open pipeline",val:money(openAmt),sub:open.length+" open deals (excl. Potential)"},
+    {label:"Closed won",val:money(wonAmt),sub:won.length+" deals won"},
+    {label:"Win rate",val:winRate.toFixed(0)+"%",sub:"won vs. won+lost"},
+    {label:"Avg won deal",val:money(avgWon),sub:"per closed-won"},
+    {label:"Total deals",val:D.length.toLocaleString(),sub:new Set(D.map(d=>d.partner_id).filter(Boolean)).size+" via partners"},
+    {label:"Meetings",val:DATA.meetings.length.toLocaleString(),sub:"logged all-time"},
+  ];
+  document.getElementById('kpis').innerHTML=items.map(k=>
+    `<div class="kpi"><div class="label">${k.label}</div><div class="val">${k.val}</div><div class="sub">${k.sub}</div></div>`).join('');
+}
+
+/* ============================ RENDER ALL ============================ */
+function renderAll(){
+  renderKPIs();
+  renderPipeline();
+  renderAeIndia();
+  renderPartner();
+}
+
+/* ============================ FETCH LOOP ============================ */
+async function fetchSheet(name){
+  const res=await fetch(csvUrl(name),{cache:"no-store"});
+  if(!res.ok) throw new Error(name+" HTTP "+res.status);
+  return toObjects(await res.text());
+}
+let countdownTimer=null, nextAt=0;
+function startCountdown(){
+  nextAt=Date.now()+REFRESH_MS; clearInterval(countdownTimer);
+  countdownTimer=setInterval(()=>{
+    const s=Math.max(0,Math.round((nextAt-Date.now())/1000));
+    document.getElementById('countdown').textContent=`next refresh in ${s}s`;
+  },1000);
+}
+async function refresh(){
+  const dot=document.getElementById('dot'), st=document.getElementById('statusText');
+  try{
+    const [deals,meetings,partners]=await Promise.all([
+      fetchSheet("deals"),fetchSheet("meetings"),fetchSheet("partners")]);
+    DATA={deals,meetings,partners};
+    partnerName={}; partners.forEach(p=>{if(p.id)partnerName[p.id]=p.name;});
+    renderAll();
+    dot.classList.remove('err'); st.textContent="Live";
+    document.getElementById('updated').textContent="updated "+new Date().toLocaleTimeString();
+  }catch(e){ dot.classList.add('err'); st.textContent="Fetch error — retrying"; console.error(e); }
+  startCountdown();
+}
+
+/* ============================ INIT ============================ */
+renderChipBar(document.getElementById('fb_pipeline'), stageFilter, renderPipeline);
+renderChipBar(document.getElementById('fb_aeIndia'), tableFilters.aeIndia, renderAeIndia);
+renderChipBar(document.getElementById('fb_partner'), tableFilters.partner, renderPartner);
+refresh();
+setInterval(refresh, REFRESH_MS);
+document.getElementById('refreshBtn').addEventListener('click',refresh);
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>renderAll());
+
+/* drill-down: open a deal list when a numeric table cell is clicked */
+document.addEventListener('click',(e)=>{
+  const td=e.target.closest && e.target.closest('table.st td.clk[data-clk]');
+  if(td) openCellModal(td.dataset.tbl, td.dataset.row, td.dataset.stage);
+});
+document.getElementById('mClose').addEventListener('click',closeModal);
+document.getElementById('overlay').addEventListener('click',(e)=>{ if(e.target.id==='overlay') closeModal(); });
+document.addEventListener('keydown',(e)=>{ if(e.key==='Escape') closeModal(); });
+</script>
+</body>
+</html>

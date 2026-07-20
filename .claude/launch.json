@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "sales-dashboard",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["/Users/sproits/Desktop/Sales Dashboard - Claude Code/serve.py"],
+      "port": 8777
+    }
+  ]
+}
