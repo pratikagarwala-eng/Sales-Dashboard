@@ -2,3 +2,4 @@
 *.log
 scratchpad/
 .vercel
+.claude/settings.local.json
