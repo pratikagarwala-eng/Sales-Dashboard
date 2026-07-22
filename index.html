@@ -59,6 +59,8 @@
   .card h3{margin:0;font-size:14px;font-weight:650;}
   .hint{font-size:11.5px;color:var(--muted);}
   .canvas-wrap{position:relative;min-height:360px;}
+  .grid2{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;}
+  @media (max-width:900px){.grid2{grid-template-columns:1fr;}}
 
   .filterbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px;}
   .filterbar .flabel{font-size:11.5px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin-right:2px;}
@@ -151,6 +153,18 @@
     </div>
     <div class="canvas-wrap"><canvas id="c_pipeline"></canvas></div>
     <div class="summary" id="pipeSummary"></div>
+  </div>
+
+  <div class="section-label">Closed Won trends</div>
+  <div class="grid2">
+    <div class="card">
+      <div class="chead"><h3>Week on week &middot; last 4 weeks</h3><span class="hint">Bars: amount &amp; count &middot; line: WoW growth &middot; click a bar</span></div>
+      <div class="canvas-wrap"><canvas id="c_wonWeek"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="chead"><h3>Month on month &middot; last 4 months</h3><span class="hint">Bars: amount &amp; count &middot; line: MoM growth &middot; click a bar</span></div>
+      <div class="canvas-wrap"><canvas id="c_wonMonth"></canvas></div>
+    </div>
   </div>
 
   <div class="section-label">Deals by AE India, at each stage</div>
@@ -339,22 +353,7 @@ const renderPartner =()=>renderTable("t_partner", d=>partnerName[d.partner_id]||
 
 /* ============================ DRILL-DOWN MODAL ============================ */
 const KEYFN={ aeIndia:d=>nameOf(d.ae_india), partner:d=>partnerName[d.partner_id]||"" };
-function openCellModal(tbl,row,stage){
-  const kf=KEYFN[tbl], sel=tableFilters[tbl];
-  let list=DATA.deals.filter(d=>{
-    const k=kf(d); if(!k) return false; if(!STAGE_COLOR[d.stage]) return false;
-    if(row!=="*" && k!==row) return false;
-    if(stage==="*"){ if(!sel.has(d.stage)) return false; } else if(d.stage!==stage) return false;
-    return true;
-  });
-  list.sort((a,b)=>num(b.amount)-num(a.amount));
-  const label=(tbl==="partner"?"partners":"AE India");
-  const tot=list.reduce((s,d)=>s+num(d.amount),0);
-  document.getElementById('mTitle').textContent=
-    (row==="*"?("All "+label):row)+"  ·  "+(stage==="*"?"selected stages":stage);
-  document.getElementById('mSub').textContent=
-    `${list.length} deal${list.length===1?'':'s'} · ${money(tot)} total`;
-
+function dealTableHtml(list){
   const cols=[['Deal','dealcell'],['Amount','num'],['Stage',''],['Close date',''],
     ['Source',''],['Owner',''],['Region',''],['Partner','']];
   let h='<table class="dl"><thead><tr>'+cols.map(c=>`<th class="${c[1]}">${c[0]}</th>`).join('')+'</tr></thead><tbody>';
@@ -372,10 +371,118 @@ function openCellModal(tbl,row,stage){
     '</tr>';
   });
   h+='</tbody></table>';
-  document.getElementById('mBody').innerHTML = list.length ? h : '<p class="nodata" style="padding:18px">No deals.</p>';
+  return h;
+}
+function openDealsModal(title, sub, list){
+  document.getElementById('mTitle').textContent=title;
+  document.getElementById('mSub').textContent=sub;
+  document.getElementById('mBody').innerHTML = list.length ? dealTableHtml(list) : '<p class="nodata" style="padding:18px">No deals.</p>';
   document.getElementById('overlay').classList.add('open');
 }
+function openCellModal(tbl,row,stage){
+  const kf=KEYFN[tbl], sel=tableFilters[tbl];
+  let list=DATA.deals.filter(d=>{
+    const k=kf(d); if(!k) return false; if(!STAGE_COLOR[d.stage]) return false;
+    if(row!=="*" && k!==row) return false;
+    if(stage==="*"){ if(!sel.has(d.stage)) return false; } else if(d.stage!==stage) return false;
+    return true;
+  });
+  list.sort((a,b)=>num(b.amount)-num(a.amount));
+  const label=(tbl==="partner"?"partners":"AE India");
+  const tot=list.reduce((s,d)=>s+num(d.amount),0);
+  openDealsModal(
+    (row==="*"?("All "+label):row)+"  ·  "+(stage==="*"?"selected stages":stage),
+    `${list.length} deal${list.length===1?'':'s'} · ${money(tot)} total`,
+    list);
+}
 function closeModal(){ document.getElementById('overlay').classList.remove('open'); }
+
+/* ============================ CLOSED-WON TRENDS ============================ */
+const WON_COLOR="#0ca30c", GROW_COLOR="#eb6834";
+function parseDate(s){ s=(s||"").slice(0,10); if(!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const [y,m,dd]=s.split('-').map(Number); return new Date(y,m-1,dd); }
+function startOfWeek(d){ const x=new Date(d); x.setHours(0,0,0,0); const wd=(x.getDay()+6)%7; x.setDate(x.getDate()-wd); return x; }
+function wonInRange(start,end){
+  return DATA.deals.filter(d=>{ if(d.stage!==WON) return false; const dt=parseDate(d.close_date); return dt && dt>=start && dt<end; });
+}
+function wonBuckets(kind){
+  const now=new Date(); now.setHours(0,0,0,0);
+  const buckets=[];
+  if(kind==='week'){
+    const curMon=startOfWeek(now);
+    for(let i=3;i>=0;i--){ const s=new Date(curMon); s.setDate(s.getDate()-7*i);
+      const e=new Date(s); e.setDate(e.getDate()+7);
+      buckets.push({start:s,end:e,label:s.toLocaleDateString(undefined,{month:'short',day:'numeric'})}); }
+  }else{
+    for(let i=3;i>=0;i--){ const s=new Date(now.getFullYear(), now.getMonth()-i, 1);
+      const e=new Date(s.getFullYear(), s.getMonth()+1, 1);
+      buckets.push({start:s,end:e,label:s.toLocaleDateString(undefined,{month:'short'})+" '"+String(s.getFullYear()).slice(2)}); }
+  }
+  buckets.forEach(b=>{ b.deals=wonInRange(b.start,b.end).sort((x,y)=>num(y.amount)-num(x.amount));
+    b.count=b.deals.length; b.amount=b.deals.reduce((s,d)=>s+num(d.amount),0); });
+  return buckets;
+}
+const growthArr=(vals)=> vals.map((v,i)=> i===0 || !vals[i-1] ? null : Math.round((v-vals[i-1])/vals[i-1]*100));
+
+/* plugin: value+count labels over bars, growth% over line points */
+const trendLabels={ id:'trendLabels', afterDatasetsDraw(chart){
+  const {ctx}=chart;
+  const m0=chart.getDatasetMeta(0), counts=chart.$counts||[];
+  ctx.save(); ctx.textAlign='center';
+  m0.data.forEach((bar,i)=>{
+    if(bar.base-bar.y===0 && !counts[i]) return;
+    ctx.fillStyle=css('--ink'); ctx.font='700 11px system-ui,-apple-system,sans-serif'; ctx.textBaseline='bottom';
+    ctx.fillText(money(chart.data.datasets[0].data[i]), bar.x, bar.y-13);
+    ctx.fillStyle=css('--ink2'); ctx.font='600 10px system-ui,-apple-system,sans-serif';
+    ctx.fillText(counts[i]+(counts[i]===1?' deal':' deals'), bar.x, bar.y-1);
+  });
+  const m1=chart.getDatasetMeta(1);
+  ctx.font='700 10px system-ui,-apple-system,sans-serif'; ctx.textBaseline='bottom';
+  m1.data.forEach((pt,i)=>{ const g=chart.data.datasets[1].data[i]; if(g===null||g===undefined) return;
+    ctx.fillStyle= g>=0? '#0a8f0a' : '#d03b3b'; ctx.fillText((g>=0?'+':'')+g+'%', pt.x, pt.y-8); });
+  ctx.restore();
+}};
+
+const wonCharts={};
+function renderWonTrend(canvasId, kind){
+  const t=chartTheme();
+  const buckets=wonBuckets(kind);
+  const labels=buckets.map(b=>b.label), counts=buckets.map(b=>b.count), amounts=buckets.map(b=>b.amount);
+  const grow=growthArr(amounts), growC=growthArr(counts);
+  if(wonCharts[canvasId]) wonCharts[canvasId].destroy();
+  wonCharts[canvasId]=new Chart(document.getElementById(canvasId),{
+    data:{labels,datasets:[
+      {type:'bar',label:'Won amount',data:amounts,backgroundColor:WON_COLOR,borderRadius:4,
+        borderSkipped:false,maxBarThickness:64,yAxisID:'y',order:2},
+      {type:'line',label:'Amount growth %',data:grow,yAxisID:'y1',borderColor:GROW_COLOR,
+        backgroundColor:GROW_COLOR,borderWidth:2,tension:.3,spanGaps:true,pointRadius:4,pointHoverRadius:6,order:1}
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,animation:{duration:300},
+      layout:{padding:{top:28}},
+      onClick:(e,els)=>{ if(!els.length) return; const el=els.find(x=>x.datasetIndex===0)||els[0];
+        const b=buckets[el.index];
+        openDealsModal(`Closed Won · ${kind==='week'?'week of '+b.label:b.label}`,
+          `${b.count} deal${b.count===1?'':'s'} · ${money(b.amount)}`, b.deals); },
+      onHover:(e,els)=>{ e.native.target.style.cursor = els.some(x=>x.datasetIndex===0)?'pointer':'default'; },
+      plugins:{legend:{display:true,position:'bottom',labels:{color:t.ink2,boxWidth:12,usePointStyle:true,font:{size:11}}},
+        tooltip:{callbacks:{label:(ctx)=>{ const i=ctx.dataIndex;
+          if(ctx.datasetIndex===1){ const g=grow[i]; return g==null?'Amount growth: n/a':`Amount growth: ${g>=0?'+':''}${g}%`; }
+          const gc=growC[i];
+          return [`${money(amounts[i])} · ${counts[i]} deal${counts[i]===1?'':'s'}`,
+                  gc==null?'Count growth: n/a':`Count growth: ${gc>=0?'+':''}${gc}%`]; }}}},
+      scales:{
+        x:{grid:{color:'transparent',drawBorder:false},ticks:{color:t.ink2,font:{size:12}}},
+        y:{beginAtZero:true,grid:{color:t.grid,drawBorder:false},ticks:{color:t.muted,font:{size:11},callback:(v)=>money(v)},
+          title:{display:true,text:'Closed-won amount',color:t.muted,font:{size:11}}},
+        y1:{position:'right',grid:{drawOnChartArea:false},ticks:{color:t.muted,font:{size:11},callback:(v)=>v+'%'},
+          title:{display:true,text:'Growth %',color:t.muted,font:{size:11}}}
+      }},
+    plugins:[trendLabels]});
+  wonCharts[canvasId].$counts=counts;
+  wonCharts[canvasId].update();
+}
+const renderWonWeek =()=>renderWonTrend('c_wonWeek','week');
+const renderWonMonth=()=>renderWonTrend('c_wonMonth','month');
 
 /* ============================ PIPELINE CHART ============================ */
 const barBoth={
@@ -454,6 +561,8 @@ function renderKPIs(){
 function renderAll(){
   renderKPIs();
   renderPipeline();
+  renderWonWeek();
+  renderWonMonth();
   renderAeIndia();
   renderPartner();
 }
