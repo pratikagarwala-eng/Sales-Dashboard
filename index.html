@@ -356,7 +356,7 @@ function openCellModal(tbl,row,stage){
     `${list.length} deal${list.length===1?'':'s'} · ${money(tot)} total`;
 
   const cols=[['Deal','dealcell'],['Amount','num'],['Stage',''],['Close date',''],
-    ['Source',''],['Owner',''],['Region',''],['Next activity','']];
+    ['Source',''],['Owner',''],['Region',''],['Partner','']];
   let h='<table class="dl"><thead><tr>'+cols.map(c=>`<th class="${c[1]}">${c[0]}</th>`).join('')+'</tr></thead><tbody>';
   list.forEach(d=>{
     const owner=d.ae_india||d.owner_email||d.ae_usa||'—';
@@ -368,7 +368,7 @@ function openCellModal(tbl,row,stage){
       `<td>${esc(d.source||'—')}</td>`+
       `<td>${esc(owner)}</td>`+
       `<td>${esc(d.region||'—')}</td>`+
-      `<td>${fmtDate(d.next_activity_date)}</td>`+
+      `<td>${esc(partnerName[d.partner_id]||'—')}</td>`+
     '</tr>';
   });
   h+='</tbody></table>';
