@@ -538,20 +538,40 @@ function renderPipeline(){
 /* ============================ KPIs ============================ */
 function renderKPIs(){
   const D=DATA.deals;
+  const YR=new Date().getFullYear();
+  const today=new Date(); today.setHours(0,0,0,0);
+  const yrOf=(s)=>{const dt=parseDate(s);return dt?dt.getFullYear():null;};
+
   const open=D.filter(d=>OPEN_STAGES.includes(d.stage));
-  const won=D.filter(d=>d.stage===WON);
-  const lost=D.filter(d=>LOST.has(d.stage));
   const openAmt=open.reduce((s,d)=>s+num(d.amount),0);
-  const wonAmt=won.reduce((s,d)=>s+num(d.amount),0);
-  const winRate=(won.length+lost.length)?(won.length/(won.length+lost.length)*100):0;
-  const avgWon=won.length?wonAmt/won.length:0;
+
+  // This-year Closed Won / lost (by close_date)
+  const wonY=D.filter(d=>d.stage===WON && yrOf(d.close_date)===YR);
+  const lostY=D.filter(d=>LOST.has(d.stage) && yrOf(d.close_date)===YR);
+  const wonAmtY=wonY.reduce((s,d)=>s+num(d.amount),0);
+  const winRateY=(wonY.length+lostY.length)?(wonY.length/(wonY.length+lostY.length)*100):0;
+  const avgWonY=wonY.length?wonAmtY/wonY.length:0;
+
+  // Deals created this year (by _created_at), excluding Potential
+  const createdY=D.filter(d=>yrOf(d._created_at)===YR && d.stage!=="0. Potential");
+
+  // Discovery calls completed this year: type contains 'discovery', not scheduled,
+  // not cancelled, meeting date in the past, and in the current year
+  const discY=DATA.meetings.filter(m=>{
+    const t=(m.type||"").toLowerCase();
+    if(!t.includes("discovery") || t.includes("scheduled")) return false;
+    if((m.canceled_at||"").trim()) return false;
+    const dt=parseDate(m.end)||parseDate(m.start);
+    return dt && dt<=today && dt.getFullYear()===YR;
+  });
+
   const items=[
     {label:"Open pipeline",val:money(openAmt),sub:open.length+" open deals (excl. Potential)"},
-    {label:"Closed won",val:money(wonAmt),sub:won.length+" deals won"},
-    {label:"Win rate",val:winRate.toFixed(0)+"%",sub:"won vs. won+lost"},
-    {label:"Avg won deal",val:money(avgWon),sub:"per closed-won"},
-    {label:"Total deals",val:D.length.toLocaleString(),sub:new Set(D.map(d=>d.partner_id).filter(Boolean)).size+" via partners"},
-    {label:"Meetings",val:DATA.meetings.length.toLocaleString(),sub:"logged all-time"},
+    {label:`Closed won (${YR})`,val:money(wonAmtY),sub:wonY.length+" deals won this year"},
+    {label:`Win rate (${YR})`,val:winRateY.toFixed(0)+"%",sub:`${wonY.length} won vs. ${lostY.length} lost`},
+    {label:`Avg won deal (${YR})`,val:money(avgWonY),sub:"per closed-won this year"},
+    {label:`Deals created (${YR})`,val:createdY.length.toLocaleString(),sub:"excl. Potential"},
+    {label:"Discovery calls completed",val:discY.length.toLocaleString(),sub:`this year · excl. scheduled & cancelled`},
   ];
   document.getElementById('kpis').innerHTML=items.map(k=>
     `<div class="kpi"><div class="label">${k.label}</div><div class="val">${k.val}</div><div class="sub">${k.sub}</div></div>`).join('');
