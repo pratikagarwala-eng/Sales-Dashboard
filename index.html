@@ -72,6 +72,9 @@
   .chip .sw.off{background:var(--muted)!important;}
   .mini{font-size:11.5px;color:var(--muted);cursor:pointer;text-decoration:underline;background:none;border:0;padding:0;}
   .mini:hover{color:var(--accent);}
+  .ownersel{border:1px solid var(--border);background:var(--surface);color:var(--ink);border-radius:8px;
+    padding:5px 8px;font-size:11.5px;font-weight:600;cursor:pointer;font-family:inherit;}
+  .ownersel:hover{border-color:var(--accent);}
 
   .summary{display:flex;gap:26px;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px solid var(--grid);}
   .summary div{font-size:12px;color:var(--muted);}
@@ -401,7 +404,7 @@ function closeModal(){ document.getElementById('overlay').classList.remove('open
 const WON_COLOR="#0ca30c", GROW_COLOR="#eb6834";
 const CATOWN=["#2a78d6","#1baf7a","#eda100","#008300","#4a3aa7","#e34948","#e87ba4","#eb6834","#898781"];
 const WEEKS=5, MONTHS=4;
-const wonView={ week:{mode:'total',metric:'amount'}, month:{mode:'total',metric:'amount'} };
+const wonView={ week:{mode:'total',metric:'amount',owner:'All'}, month:{mode:'total',metric:'amount',owner:'All'} };
 function parseDate(s){ s=(s||"").slice(0,10); if(!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
   const [y,m,dd]=s.split('-').map(Number); return new Date(y,m-1,dd); }
 function startOfWeek(d){ const x=new Date(d); x.setHours(0,0,0,0); const wd=(x.getDay()+6)%7; x.setDate(x.getDate()-wd); return x; }
@@ -441,80 +444,98 @@ function ownerOrder(){
 }
 const growthArr=(vals)=> vals.map((v,i)=> i===0 || !vals[i-1] ? null : Math.round((v-vals[i-1])/vals[i-1]*100));
 
-/* plugin: value+count labels over bars, growth% over line points (total mode only) */
+/* plugin: primary+secondary labels over bars, growth% over the line points.
+   chart.$primaryFmt / $secondaryFmt are arrays of preformatted strings. */
 const trendLabels={ id:'trendLabels', afterDatasetsDraw(chart){
   const {ctx}=chart;
-  const m0=chart.getDatasetMeta(0), counts=chart.$counts||[];
+  const m0=chart.getDatasetMeta(0), pf=chart.$primaryFmt||[], sf=chart.$secondaryFmt||[];
   ctx.save(); ctx.textAlign='center';
   m0.data.forEach((bar,i)=>{
-    if(bar.base-bar.y===0 && !counts[i]) return;
+    if(bar.base-bar.y===0 && !chart.data.datasets[0].data[i]) return;
     ctx.fillStyle=css('--ink'); ctx.font='700 11px system-ui,-apple-system,sans-serif'; ctx.textBaseline='bottom';
-    ctx.fillText(money(chart.data.datasets[0].data[i]), bar.x, bar.y-13);
+    ctx.fillText(pf[i]||'', bar.x, bar.y-13);
     ctx.fillStyle=css('--ink2'); ctx.font='600 10px system-ui,-apple-system,sans-serif';
-    ctx.fillText(counts[i]+(counts[i]===1?' deal':' deals'), bar.x, bar.y-1);
+    ctx.fillText(sf[i]||'', bar.x, bar.y-1);
   });
   const m1=chart.getDatasetMeta(1);
-  ctx.font='700 10px system-ui,-apple-system,sans-serif'; ctx.textBaseline='bottom';
-  m1.data.forEach((pt,i)=>{ const g=chart.data.datasets[1].data[i]; if(g===null||g===undefined) return;
-    ctx.fillStyle= g>=0? '#0a8f0a' : '#d03b3b'; ctx.fillText((g>=0?'+':'')+g+'%', pt.x, pt.y-8); });
+  if(m1 && chart.data.datasets[1]){
+    ctx.font='700 10px system-ui,-apple-system,sans-serif'; ctx.textBaseline='bottom';
+    m1.data.forEach((pt,i)=>{ const g=chart.data.datasets[1].data[i]; if(g===null||g===undefined) return;
+      ctx.fillStyle= g>=0? '#0a8f0a' : '#d03b3b'; ctx.fillText((g>=0?'+':'')+g+'%', pt.x, pt.y-8); });
+  }
   ctx.restore();
 }};
 
 const wonCharts={};
+/* combo chart: primary metric bars + growth% trendline (used by Total and single-owner focus) */
+function comboChart(canvasId, {labels, vals, counts, amounts, metric, barColor, periodDeals, periodLabels}){
+  const t=chartTheme();
+  const grow=growthArr(vals);
+  const primaryFmt=vals.map((v,i)=> metric==='amount'? money(amounts[i]) : counts[i]+(counts[i]===1?' deal':' deals'));
+  const secondaryFmt=vals.map((v,i)=> metric==='amount'? counts[i]+(counts[i]===1?' deal':' deals') : money(amounts[i]));
+  const ch=new Chart(document.getElementById(canvasId),{
+    data:{labels,datasets:[
+      {type:'bar',label: metric==='amount'?'Won amount':'Won deals',data:vals,backgroundColor:barColor,
+        borderRadius:4,borderSkipped:false,maxBarThickness:64,yAxisID:'y',order:2},
+      {type:'line',label:'Growth %',data:grow,yAxisID:'y1',borderColor:GROW_COLOR,backgroundColor:GROW_COLOR,
+        borderWidth:2,tension:.3,spanGaps:true,pointRadius:4,pointHoverRadius:6,order:1}
+    ]},
+    options:{responsive:true,maintainAspectRatio:false,animation:{duration:300},layout:{padding:{top:28}},
+      onClick:(e,els)=>{ if(!els.length) return; const el=els.find(x=>x.datasetIndex===0)||els[0]; const i=el.index;
+        const list=periodDeals[i]||[]; openDealsModal(periodLabels[i],
+          `${list.length} deal${list.length===1?'':'s'} · ${money(amounts[i])}`, list); },
+      onHover:(e,els)=>{ e.native.target.style.cursor = els.some(x=>x.datasetIndex===0)?'pointer':'default'; },
+      plugins:{legend:{display:true,position:'bottom',labels:{color:t.ink2,boxWidth:12,usePointStyle:true,font:{size:11}}},
+        tooltip:{callbacks:{label:(ctx)=>{ const i=ctx.dataIndex;
+          if(ctx.datasetIndex===1){ const g=grow[i]; return g==null?'Growth: n/a':`Growth: ${g>=0?'+':''}${g}%`; }
+          return `${money(amounts[i])} · ${counts[i]} deal${counts[i]===1?'':'s'}`; }}}},
+      scales:{
+        x:{grid:{color:'transparent',drawBorder:false},ticks:{color:t.ink2,font:{size:12}}},
+        y:{beginAtZero:true,grid:{color:t.grid,drawBorder:false},
+          ticks:{color:t.muted,font:{size:11},callback:(v)=> metric==='amount'?money(v):v},
+          title:{display:true,text: metric==='amount'?'Closed-won amount':'Closed-won deals',color:t.muted,font:{size:11}}},
+        y1:{position:'right',grid:{drawOnChartArea:false},ticks:{color:t.muted,font:{size:11},callback:(v)=>v+'%'},
+          title:{display:true,text:'Growth %',color:t.muted,font:{size:11}}}
+      }},
+    plugins:[trendLabels]});
+  ch.$primaryFmt=primaryFmt; ch.$secondaryFmt=secondaryFmt; ch.update();
+  return ch;
+}
 function renderWonTrend(canvasId, kind){
   const t=chartTheme();
   const view=wonView[kind];
   const buckets=wonBuckets(kind);
   const labels=buckets.map(b=>b.label);
   const periodLabel=(b)=> kind==='week'?'week of '+b.label:b.label;
+  const order=ownerOrder();
+  const owners=order.filter(o=>buckets.some(b=>b.byOwner[o]));
+  const colorOf=(o)=>CATOWN[order.indexOf(o)%CATOWN.length];
+  syncOwnerSelect(kind, owners);
   if(wonCharts[canvasId]) wonCharts[canvasId].destroy();
 
-  if(view.mode==='total'){
-    const counts=buckets.map(b=>b.count), amounts=buckets.map(b=>b.amount);
-    const grow=growthArr(amounts), growC=growthArr(counts);
-    wonCharts[canvasId]=new Chart(document.getElementById(canvasId),{
-      data:{labels,datasets:[
-        {type:'bar',label:'Won amount',data:amounts,backgroundColor:WON_COLOR,borderRadius:4,
-          borderSkipped:false,maxBarThickness:64,yAxisID:'y',order:2},
-        {type:'line',label:'Amount growth %',data:grow,yAxisID:'y1',borderColor:GROW_COLOR,
-          backgroundColor:GROW_COLOR,borderWidth:2,tension:.3,spanGaps:true,pointRadius:4,pointHoverRadius:6,order:1}
-      ]},
-      options:{responsive:true,maintainAspectRatio:false,animation:{duration:300},
-        layout:{padding:{top:28}},
-        onClick:(e,els)=>{ if(!els.length) return; const el=els.find(x=>x.datasetIndex===0)||els[0];
-          const b=buckets[el.index];
-          openDealsModal(`Closed Won · ${periodLabel(b)}`, `${b.count} deal${b.count===1?'':'s'} · ${money(b.amount)}`, b.deals); },
-        onHover:(e,els)=>{ e.native.target.style.cursor = els.some(x=>x.datasetIndex===0)?'pointer':'default'; },
-        plugins:{legend:{display:true,position:'bottom',labels:{color:t.ink2,boxWidth:12,usePointStyle:true,font:{size:11}}},
-          tooltip:{callbacks:{label:(ctx)=>{ const i=ctx.dataIndex;
-            if(ctx.datasetIndex===1){ const g=grow[i]; return g==null?'Amount growth: n/a':`Amount growth: ${g>=0?'+':''}${g}%`; }
-            const gc=growC[i];
-            return [`${money(amounts[i])} · ${counts[i]} deal${counts[i]===1?'':'s'}`,
-                    gc==null?'Count growth: n/a':`Count growth: ${gc>=0?'+':''}${gc}%`]; }}}},
-        scales:{
-          x:{grid:{color:'transparent',drawBorder:false},ticks:{color:t.ink2,font:{size:12}}},
-          y:{beginAtZero:true,grid:{color:t.grid,drawBorder:false},ticks:{color:t.muted,font:{size:11},callback:(v)=>money(v)},
-            title:{display:true,text:'Closed-won amount',color:t.muted,font:{size:11}}},
-          y1:{position:'right',grid:{drawOnChartArea:false},ticks:{color:t.muted,font:{size:11},callback:(v)=>v+'%'},
-            title:{display:true,text:'Growth %',color:t.muted,font:{size:11}}}
-        }},
-      plugins:[trendLabels]});
-    wonCharts[canvasId].$counts=counts;
-    wonCharts[canvasId].update();
+  const focus = view.mode==='owner' && view.owner && view.owner!=='All' && owners.includes(view.owner) ? view.owner : null;
+
+  if(view.mode==='total' || focus){
+    // single series (all deals, or one owner) — bars + growth trendline
+    const metric = focus ? view.metric : 'amount';
+    const src = buckets.map(b=> focus ? (b.byOwner[focus]||{count:0,amount:0,deals:[]})
+                                      : {count:b.count,amount:b.amount,deals:b.deals});
+    const counts=src.map(s=>s.count), amounts=src.map(s=>s.amount);
+    const vals = metric==='amount'? amounts : counts;
+    const who = focus ? focus+' · ' : '';
+    wonCharts[canvasId]=comboChart(canvasId,{
+      labels, vals, counts, amounts, metric, barColor: focus?colorOf(focus):WON_COLOR,
+      periodDeals: src.map(s=>s.deals),
+      periodLabels: buckets.map(b=>`Closed Won · ${who}${periodLabel(b)}`)
+    });
   } else {
-    // comparison mode: one line per deal owner
-    const metric=view.metric, order=ownerOrder();
-    const owners=order.filter(o=>buckets.some(b=>b.byOwner[o]));
-    const colorOf=(o)=>CATOWN[order.indexOf(o)%CATOWN.length];
-    const datasets=owners.map(o=>({
-      label:o, borderColor:colorOf(o), backgroundColor:colorOf(o), borderWidth:2, tension:0,
-      pointRadius:3, pointHoverRadius:6, spanGaps:true,
-      data:buckets.map(b=> b.byOwner[o]? (metric==='amount'? b.byOwner[o].amount : b.byOwner[o].count) : 0)
-    }));
-    wonCharts[canvasId]=new Chart(document.getElementById(canvasId),{ type:'line',
+    // all owners — grouped bars, click legend or use dropdown to focus
+    const metric=view.metric;
+    const datasets=owners.map(o=>({label:o,backgroundColor:colorOf(o),borderRadius:3,borderSkipped:false,
+      maxBarThickness:26, data:buckets.map(b=> b.byOwner[o]? (metric==='amount'?b.byOwner[o].amount:b.byOwner[o].count):0)}));
+    wonCharts[canvasId]=new Chart(document.getElementById(canvasId),{ type:'bar',
       data:{labels,datasets},
       options:{responsive:true,maintainAspectRatio:false,animation:{duration:300},
-        interaction:{mode:'nearest',intersect:true},
         onClick:(e,els)=>{ if(!els.length) return; const el=els[0]; const o=datasets[el.datasetIndex].label;
           const b=buckets[el.index]; const list=(b.byOwner[o]&&b.byOwner[o].deals)||[];
           openDealsModal(`Closed Won · ${o} · ${periodLabel(b)}`,
@@ -532,6 +553,17 @@ function renderWonTrend(canvasId, kind){
     wonCharts[canvasId].update();
   }
 }
+function syncOwnerSelect(kind, owners){
+  const sel=document.querySelector(`.wonctl[data-kind="${kind}"] .ownersel`); if(!sel) return;
+  const v=wonView[kind];
+  if(v.owner!=='All' && !owners.includes(v.owner)) v.owner='All';
+  const want=['All',...owners];
+  if(sel.dataset.opts!==want.join('|')){
+    sel.innerHTML=want.map(o=>`<option value="${esc(o)}">${o==='All'?'All owners (compare)':esc(o)}</option>`).join('');
+    sel.dataset.opts=want.join('|');
+  }
+  sel.value=v.owner;
+}
 const renderWonWeek =()=>renderWonTrend('c_wonWeek','week');
 const renderWonMonth=()=>renderWonTrend('c_wonMonth','month');
 function buildWonControls(){
@@ -539,15 +571,18 @@ function buildWonControls(){
     const kind=host.dataset.kind, v=wonView[kind], cid=kind==='week'?'c_wonWeek':'c_wonMonth';
     host.innerHTML=
       `<span class="toggle mode"><button data-mode="total">Total</button><button data-mode="owner">By owner</button></span>`+
-      `<span class="toggle metric" style="margin-left:6px"><button data-metric="amount">$ Amount</button><button data-metric="count"># Count</button></span>`;
+      `<span class="toggle metric" style="margin-left:6px"><button data-metric="amount">$ Amount</button><button data-metric="count"># Count</button></span>`+
+      `<select class="ownersel" style="margin-left:6px;display:none"></select>`;
     const upd=()=>{
       host.querySelectorAll('[data-mode]').forEach(b=>b.classList.toggle('active',b.dataset.mode===v.mode));
       host.querySelectorAll('[data-metric]').forEach(b=>b.classList.toggle('active',b.dataset.metric===v.metric));
       host.querySelector('.metric').style.display = v.mode==='owner'?'inline-flex':'none';
+      host.querySelector('.ownersel').style.display = v.mode==='owner'?'inline-block':'none';
     };
     upd();
     host.querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>{ v.mode=b.dataset.mode; upd(); renderWonTrend(cid,kind); });
     host.querySelectorAll('[data-metric]').forEach(b=>b.onclick=()=>{ v.metric=b.dataset.metric; upd(); renderWonTrend(cid,kind); });
+    host.querySelector('.ownersel').onchange=(e)=>{ v.owner=e.target.value; renderWonTrend(cid,kind); };
   });
 }
 
