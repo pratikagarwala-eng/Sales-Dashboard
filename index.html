@@ -634,6 +634,10 @@ function renderPipeline(){
       borderRadius:4,borderSkipped:false,maxBarThickness:40}]},
     options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',animation:{duration:300},
       layout:{padding:{right:150}},
+      onClick:(e,els)=>{ if(!els.length) return; const st=labels[els[0].index];
+        const list=DATA.deals.filter(d=>d.stage===st).sort((a,b)=>num(b.amount)-num(a.amount));
+        openDealsModal(`${st}`, `${list.length} deal${list.length===1?'':'s'} · ${money(list.reduce((s,d)=>s+num(d.amount),0))}`, list); },
+      onHover:(e,els)=>{ e.native.target.style.cursor = els.length?'pointer':'default'; },
       plugins:{legend:{display:false},
         tooltip:{callbacks:{label:(ctx)=>{const i=ctx.dataIndex;return "  "+counts[i].toLocaleString()+" deals   ·   "+money(amounts[i]);}}}},
       scales:{
