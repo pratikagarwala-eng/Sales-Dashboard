@@ -468,18 +468,27 @@ const trendLabels={ id:'trendLabels', afterDatasetsDraw(chart){
 
 const wonCharts={};
 /* combo chart: primary metric bars + growth% trendline (used by Total and single-owner focus) */
-function comboChart(canvasId, {labels, vals, counts, amounts, metric, barColor, periodDeals, periodLabels}){
+function comboChart(canvasId, {labels, vals, counts, amounts, metric, barColor, periodDeals, periodLabels, showGrowth=true}){
   const t=chartTheme();
   const grow=growthArr(vals);
   const primaryFmt=vals.map((v,i)=> metric==='amount'? money(amounts[i]) : counts[i]+(counts[i]===1?' deal':' deals'));
   const secondaryFmt=vals.map((v,i)=> metric==='amount'? counts[i]+(counts[i]===1?' deal':' deals') : money(amounts[i]));
+  const datasets=[
+    {type:'bar',label: metric==='amount'?'Won amount':'Won deals',data:vals,backgroundColor:barColor,
+      borderRadius:4,borderSkipped:false,maxBarThickness:64,yAxisID:'y',order:2}
+  ];
+  if(showGrowth) datasets.push({type:'line',label:'Growth %',data:grow,yAxisID:'y1',borderColor:GROW_COLOR,
+    backgroundColor:GROW_COLOR,borderWidth:2,tension:.3,spanGaps:true,pointRadius:4,pointHoverRadius:6,order:1});
+  const scales={
+    x:{grid:{color:'transparent',drawBorder:false},ticks:{color:t.ink2,font:{size:12}}},
+    y:{beginAtZero:true,grid:{color:t.grid,drawBorder:false},
+      ticks:{color:t.muted,font:{size:11},callback:(v)=> metric==='amount'?money(v):v},
+      title:{display:true,text: metric==='amount'?'Closed-won amount':'Closed-won deals',color:t.muted,font:{size:11}}}
+  };
+  if(showGrowth) scales.y1={position:'right',grid:{drawOnChartArea:false},ticks:{color:t.muted,font:{size:11},callback:(v)=>v+'%'},
+    title:{display:true,text:'Growth %',color:t.muted,font:{size:11}}};
   const ch=new Chart(document.getElementById(canvasId),{
-    data:{labels,datasets:[
-      {type:'bar',label: metric==='amount'?'Won amount':'Won deals',data:vals,backgroundColor:barColor,
-        borderRadius:4,borderSkipped:false,maxBarThickness:64,yAxisID:'y',order:2},
-      {type:'line',label:'Growth %',data:grow,yAxisID:'y1',borderColor:GROW_COLOR,backgroundColor:GROW_COLOR,
-        borderWidth:2,tension:.3,spanGaps:true,pointRadius:4,pointHoverRadius:6,order:1}
-    ]},
+    data:{labels,datasets},
     options:{responsive:true,maintainAspectRatio:false,animation:{duration:300},layout:{padding:{top:28}},
       onClick:(e,els)=>{ if(!els.length) return; const el=els.find(x=>x.datasetIndex===0)||els[0]; const i=el.index;
         const list=periodDeals[i]||[]; openDealsModal(periodLabels[i],
@@ -487,16 +496,9 @@ function comboChart(canvasId, {labels, vals, counts, amounts, metric, barColor, 
       onHover:(e,els)=>{ e.native.target.style.cursor = els.some(x=>x.datasetIndex===0)?'pointer':'default'; },
       plugins:{legend:{display:true,position:'bottom',labels:{color:t.ink2,boxWidth:12,usePointStyle:true,font:{size:11}}},
         tooltip:{callbacks:{label:(ctx)=>{ const i=ctx.dataIndex;
-          if(ctx.datasetIndex===1){ const g=grow[i]; return g==null?'Growth: n/a':`Growth: ${g>=0?'+':''}${g}%`; }
+          if(ctx.dataset.type==='line'){ const g=grow[i]; return g==null?'Growth: n/a':`Growth: ${g>=0?'+':''}${g}%`; }
           return `${money(amounts[i])} · ${counts[i]} deal${counts[i]===1?'':'s'}`; }}}},
-      scales:{
-        x:{grid:{color:'transparent',drawBorder:false},ticks:{color:t.ink2,font:{size:12}}},
-        y:{beginAtZero:true,grid:{color:t.grid,drawBorder:false},
-          ticks:{color:t.muted,font:{size:11},callback:(v)=> metric==='amount'?money(v):v},
-          title:{display:true,text: metric==='amount'?'Closed-won amount':'Closed-won deals',color:t.muted,font:{size:11}}},
-        y1:{position:'right',grid:{drawOnChartArea:false},ticks:{color:t.muted,font:{size:11},callback:(v)=>v+'%'},
-          title:{display:true,text:'Growth %',color:t.muted,font:{size:11}}}
-      }},
+      scales},
     plugins:[trendLabels]});
   ch.$primaryFmt=primaryFmt; ch.$secondaryFmt=secondaryFmt; ch.update();
   return ch;
@@ -526,7 +528,8 @@ function renderWonTrend(canvasId, kind){
     wonCharts[canvasId]=comboChart(canvasId,{
       labels, vals, counts, amounts, metric, barColor: focus?colorOf(focus):WON_COLOR,
       periodDeals: src.map(s=>s.deals),
-      periodLabels: buckets.map(b=>`Closed Won · ${who}${periodLabel(b)}`)
+      periodLabels: buckets.map(b=>`Closed Won · ${who}${periodLabel(b)}`),
+      showGrowth: !focus   // trendline only in Total view, not in by-owner comparison
     });
   } else {
     // all owners — grouped bars, click legend or use dropdown to focus
