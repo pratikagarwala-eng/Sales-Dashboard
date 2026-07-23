@@ -187,12 +187,6 @@
     <div class="kpis" id="kpis"></div>
   </div>
 
-  <div class="section-label">Sales pipeline funnel</div>
-  <div class="card">
-    <div class="chead"><h3>Pipeline funnel</h3><span class="hint" id="funnelSub"></span></div>
-    <div class="fn-scroll"><div id="funnelBody"></div></div>
-  </div>
-
   <div class="section-label">Pipeline by stage</div>
   <div class="card">
     <div class="chead">
@@ -736,7 +730,7 @@ function getRange(key){
 function buildRangeBar(){
   const host=document.getElementById('rangeBar');
   host.innerHTML=RANGES.map(([k,l])=>`<button class="rb ${k===statRange?'on':''}" data-r="${k}">${l}</button>`).join('');
-  host.querySelectorAll('.rb').forEach(b=>b.onclick=()=>{ statRange=b.dataset.r; buildRangeBar(); renderKPIs(); renderFunnel(); });
+  host.querySelectorAll('.rb').forEach(b=>b.onclick=()=>{ statRange=b.dataset.r; buildRangeBar(); renderKPIs(); });
 }
 function renderKPIs(){
   const D=DATA.deals;
@@ -831,7 +825,6 @@ function renderFunnel(){
 /* ============================ RENDER ALL ============================ */
 function renderAll(){
   renderKPIs();
-  renderFunnel();
   renderPipeline();
   renderWonWeek();
   renderWonMonth();
