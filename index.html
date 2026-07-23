@@ -47,7 +47,17 @@
     border-radius:8px;padding:6px 12px;font-size:12.5px;cursor:pointer;font-weight:600;}
   .btn:hover{border-color:var(--accent);color:var(--accent);}
 
-  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:22px;}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;}
+  .kpi-open{max-width:320px;margin-bottom:14px;}
+  .statpanel{border:1px solid var(--border);border-radius:14px;padding:14px;
+    background:color-mix(in srgb,var(--accent) 4%,var(--surface));box-shadow:var(--shadow);margin-bottom:22px;}
+  .statpanel-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px;}
+  .statpanel-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);}
+  .rangebar{display:inline-flex;flex-wrap:wrap;gap:6px;}
+  .rb{border:1px solid var(--border);background:var(--surface);color:var(--ink2);border-radius:20px;
+    padding:4px 11px;font-size:12px;font-weight:600;cursor:pointer;}
+  .rb:hover{border-color:var(--accent);color:var(--accent);}
+  .rb.on{background:var(--accent);color:#fff;border-color:var(--accent);}
   .kpi{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;box-shadow:var(--shadow);}
   .kpi .label{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;font-weight:600;}
   .kpi .val{font-size:24px;font-weight:700;margin-top:5px;letter-spacing:-.01em;}
@@ -142,7 +152,14 @@
     </div>
   </header>
 
-  <div class="kpis" id="kpis"></div>
+  <div class="kpi-open" id="kpiOpen"></div>
+  <div class="statpanel">
+    <div class="statpanel-head">
+      <span class="statpanel-title">Performance</span>
+      <div class="rangebar" id="rangeBar"></div>
+    </div>
+    <div class="kpis" id="kpis"></div>
+  </div>
 
   <div class="section-label">Pipeline by stage</div>
   <div class="card">
@@ -657,43 +674,61 @@ function renderPipeline(){
     `<div>Total amount<b>${money(totAmt)}</b></div>`;
 }
 
-/* ============================ KPIs ============================ */
+/* ============================ KPIs (time-range driven) ============================ */
+const RANGES=[['thisWeek','This week'],['lastWeek','Last week'],['thisMonth','This month'],
+  ['lastMonth','Last month'],['thisQuarter','This quarter'],['lastQuarter','Last quarter'],['thisYear','This year']];
+let statRange='thisYear';
+function getRange(key){
+  const now=new Date(); now.setHours(0,0,0,0);
+  const y=now.getFullYear(), m=now.getMonth(), mk=(yy,mm,dd)=>new Date(yy,mm,dd);
+  switch(key){
+    case 'thisWeek':{const s=startOfWeek(now);const e=new Date(s);e.setDate(e.getDate()+7);return{start:s,end:e};}
+    case 'lastWeek':{const s=startOfWeek(now);s.setDate(s.getDate()-7);const e=new Date(s);e.setDate(e.getDate()+7);return{start:s,end:e};}
+    case 'thisMonth':return{start:mk(y,m,1),end:mk(y,m+1,1)};
+    case 'lastMonth':return{start:mk(y,m-1,1),end:mk(y,m,1)};
+    case 'thisQuarter':{const q=Math.floor(m/3);return{start:mk(y,q*3,1),end:mk(y,q*3+3,1)};}
+    case 'lastQuarter':{const q=Math.floor(m/3);return{start:mk(y,q*3-3,1),end:mk(y,q*3,1)};}
+    default:return{start:mk(y,0,1),end:mk(y+1,0,1)};
+  }
+}
+function buildRangeBar(){
+  const host=document.getElementById('rangeBar');
+  host.innerHTML=RANGES.map(([k,l])=>`<button class="rb ${k===statRange?'on':''}" data-r="${k}">${l}</button>`).join('');
+  host.querySelectorAll('.rb').forEach(b=>b.onclick=()=>{ statRange=b.dataset.r; buildRangeBar(); renderKPIs(); });
+}
 function renderKPIs(){
   const D=DATA.deals;
-  const YR=new Date().getFullYear();
   const today=new Date(); today.setHours(0,0,0,0);
-  const yrOf=(s)=>{const dt=parseDate(s);return dt?dt.getFullYear():null;};
 
+  // Open pipeline — live snapshot, NOT date-filtered
   const open=D.filter(d=>OPEN_STAGES.includes(d.stage));
   const openAmt=open.reduce((s,d)=>s+num(d.amount),0);
+  document.getElementById('kpiOpen').innerHTML=
+    `<div class="kpi"><div class="label">Open pipeline</div><div class="val">${money(openAmt)}</div><div class="sub">${open.length} open deals · live snapshot (not date-filtered)</div></div>`;
 
-  // This-year Closed Won / lost (by close_date)
-  const wonY=D.filter(d=>d.stage===WON && yrOf(d.close_date)===YR);
-  const lostY=D.filter(d=>LOST.has(d.stage) && yrOf(d.close_date)===YR);
-  const wonAmtY=wonY.reduce((s,d)=>s+num(d.amount),0);
-  const winRateY=(wonY.length+lostY.length)?(wonY.length/(wonY.length+lostY.length)*100):0;
-  const avgWonY=wonY.length?wonAmtY/wonY.length:0;
-
-  // Deals created this year (by _created_at), excluding Potential
-  const createdY=D.filter(d=>yrOf(d._created_at)===YR && d.stage!=="0. Potential");
-
-  // Discovery calls completed this year: type contains 'discovery', not scheduled,
-  // not cancelled, meeting date in the past, and in the current year
-  const discY=DATA.meetings.filter(m=>{
+  // Everything else — driven by the selected time range (by relevant date)
+  const r=getRange(statRange);
+  const inR=(s)=>{ const dt=parseDate(s); return dt && dt>=r.start && dt<r.end; };
+  const wonR=D.filter(d=>d.stage===WON && inR(d.close_date));
+  const lostR=D.filter(d=>LOST.has(d.stage) && inR(d.close_date));
+  const wonAmt=wonR.reduce((s,d)=>s+num(d.amount),0);
+  const winRate=(wonR.length+lostR.length)?(wonR.length/(wonR.length+lostR.length)*100):0;
+  const avgWon=wonR.length?wonAmt/wonR.length:0;
+  const createdR=D.filter(d=>inR(d._created_at) && d.stage!=="0. Potential");
+  const discR=DATA.meetings.filter(m=>{
     const t=(m.type||"").toLowerCase();
     if(!t.includes("discovery") || t.includes("scheduled")) return false;
     if((m.canceled_at||"").trim()) return false;
     const dt=parseDate(m.end)||parseDate(m.start);
-    return dt && dt<=today && dt.getFullYear()===YR;
+    return dt && dt<=today && dt>=r.start && dt<r.end;
   });
 
   const items=[
-    {label:"Open pipeline",val:money(openAmt),sub:open.length+" open deals (excl. Potential)"},
-    {label:`Closed won (${YR})`,val:money(wonAmtY),sub:wonY.length+" deals won this year"},
-    {label:`Win rate (${YR})`,val:winRateY.toFixed(0)+"%",sub:`${wonY.length} won vs. ${lostY.length} lost`},
-    {label:`Avg won deal (${YR})`,val:money(avgWonY),sub:"per closed-won this year"},
-    {label:`Deals created (${YR})`,val:createdY.length.toLocaleString(),sub:"excl. Potential"},
-    {label:"Discovery calls completed",val:discY.length.toLocaleString(),sub:`this year · excl. scheduled & cancelled`},
+    {label:"Closed won",val:money(wonAmt),sub:wonR.length+" deals won"},
+    {label:"Win rate",val:winRate.toFixed(0)+"%",sub:`${wonR.length} won vs. ${lostR.length} lost`},
+    {label:"Avg won deal",val:money(avgWon),sub:"per closed-won"},
+    {label:"Deals created",val:createdR.length.toLocaleString(),sub:"excl. Potential"},
+    {label:"Discovery calls completed",val:discR.length.toLocaleString(),sub:"excl. scheduled & cancelled"},
   ];
   document.getElementById('kpis').innerHTML=items.map(k=>
     `<div class="kpi"><div class="label">${k.label}</div><div class="val">${k.val}</div><div class="sub">${k.sub}</div></div>`).join('');
@@ -747,6 +782,7 @@ renderChipBar(document.getElementById('fb_pipeline'), stageFilter, renderPipelin
 renderChipBar(document.getElementById('fb_aeIndia'), tableFilters.aeIndia, renderAeIndia);
 renderChipBar(document.getElementById('fb_partner'), tableFilters.partner, renderPartner);
 buildWonControls();
+buildRangeBar();
 refresh();
 setInterval(refresh, REFRESH_MS);
 document.getElementById('refreshBtn').addEventListener('click',refresh);
