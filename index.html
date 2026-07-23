@@ -539,10 +539,10 @@ const groupBarLabels={ id:'groupBarLabels', afterDatasetsDraw(chart){
       if(tw < barH-10){ // fits inside the bar, reading bottom→top in white
         ctx.save(); ctx.translate(bar.x, bar.base-6); ctx.rotate(-Math.PI/2);
         ctx.textAlign='left'; ctx.textBaseline='middle'; ctx.fillStyle='#fff'; ctx.fillText(label,0,0); ctx.restore();
-      } else { // too short — value only, above the bar
-        ctx.save(); ctx.translate(bar.x, bar.y-4); ctx.rotate(-Math.PI/2);
-        ctx.textAlign='left'; ctx.textBaseline='middle'; ctx.fillStyle=css('--ink2');
-        ctx.fillText(isAmt?money(v):(''+v),0,0); ctx.restore();
+      } else { // bar too short — draw the full name+value above the bar
+        ctx.save(); ctx.translate(bar.x, bar.y-5); ctx.rotate(-Math.PI/2);
+        ctx.textAlign='left'; ctx.textBaseline='middle'; ctx.fillStyle=css('--ink');
+        ctx.fillText(label,0,0); ctx.restore();
       }
     });
   });
