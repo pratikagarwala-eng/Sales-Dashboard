@@ -140,6 +140,9 @@
   table.st tfoot td{border-top:2px solid var(--axis);border-bottom:0;}
   table.st tfoot td .c{color:var(--ink);}
   table.st td.z{color:var(--muted);opacity:.4;font-weight:400;}
+  table.st tr.totrow td{font-weight:700;border-bottom:2px solid var(--axis);background:color-mix(in srgb,var(--accent) 6%,var(--surface));}
+  table.st tr.totrow td:first-child{background:color-mix(in srgb,var(--accent) 6%,var(--surface));}
+  table.st tr.totrow td .c{color:var(--ink);}
   .nodata{color:var(--muted);padding:14px 6px;}
 
   /* clickable cells + drill-down modal */
@@ -866,12 +869,14 @@ function renderCreatedTable(){
   let h='<table class="st"><thead><tr><th>Owner</th>';
   cols.forEach(c=>{h+=`<th><span class="stagehead"><span class="sw" style="background:${STAGE_COLOR[c]}"></span>${c}</span></th>`;});
   h+='<th class="tot">Total</th></tr></thead><tbody>';
+  // Total row first
+  h+='<tr class="totrow"><td>Total</td>';
+  cols.forEach(c=>{h+=totCell(colCnt[c],colAmt[c],"","*",c);});
+  h+=totCell(gCnt,gAmt,"tot","*","*")+'</tr>';
   rows.forEach(k=>{ h+='<tr><td>'+esc(k)+'</td>';
     cols.forEach(c=>{h+=cell(cCnt[k]?.[c]||0,cAmt[k]?.[c]||0,k,c);});
     h+=totCell(rowCnt[k],rowAmt[k],"tot",k,"*")+'</tr>'; });
-  h+='</tbody><tfoot><tr><td>Total</td>';
-  cols.forEach(c=>{h+=totCell(colCnt[c],colAmt[c],"","*",c);});
-  h+=totCell(gCnt,gAmt,"tot","*","*")+'</tr></tfoot></table>';
+  h+='</tbody></table>';
   host.innerHTML=h;
 
   host.querySelectorAll('td.cclk').forEach(td=>td.onclick=()=>{
