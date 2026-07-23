@@ -464,6 +464,7 @@ function closeModal(){ document.getElementById('overlay').classList.remove('open
 /* ============================ CLOSED-WON TRENDS ============================ */
 const WON_COLOR="#0ca30c", GROW_COLOR="#eb6834";
 const CATOWN=["#2a78d6","#1baf7a","#eda100","#008300","#4a3aa7","#e34948","#e87ba4","#eb6834","#898781"];
+const OWNER_COLOR={ "Sherry":"#e87ba4", "Ayush":"#e34948" }; // explicit overrides
 const WEEKS=5, MONTHS=4;
 const wonView={ week:{mode:'total',metric:'amount',owner:'All'}, month:{mode:'total',metric:'amount',owner:'All'} };
 function parseDate(s){ s=(s||"").slice(0,10); if(!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
@@ -604,7 +605,7 @@ function renderWonTrend(canvasId, kind){
   const periodLabel=(b)=> kind==='week'?'week of '+b.label:b.label;
   const order=ownerOrder();
   const owners=order.filter(o=>buckets.some(b=>b.byOwner[o]));
-  const colorOf=(o)=>CATOWN[order.indexOf(o)%CATOWN.length];
+  const colorOf=(o)=>OWNER_COLOR[o]||CATOWN[order.indexOf(o)%CATOWN.length];
   syncOwnerSelect(kind, owners);
   if(wonCharts[canvasId]) wonCharts[canvasId].destroy();
 
