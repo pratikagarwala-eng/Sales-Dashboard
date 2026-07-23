@@ -241,6 +241,12 @@
     <div class="tbl-scroll" id="t_partner"></div>
   </div>
 
+  <div class="section-label">Deals created in range &mdash; by owner &amp; stage</div>
+  <div class="card">
+    <div class="chead"><h3>Created deals &middot; owner &times; stage</h3><span class="hint" id="createdSub"></span></div>
+    <div class="tbl-scroll" id="t_created"></div>
+  </div>
+
   <footer>
     Auto-refreshes every 60&nbsp;seconds from the source
     <a href="https://docs.google.com/spreadsheets/d/1_pGb5SR2Ef3Jkk2EfgfVesdcA5qohBYtMD6wpDCc2L4/edit" target="_blank" rel="noopener">Google Sheet</a>.
@@ -772,10 +778,10 @@ function buildRangeBar(){
   const r=getRange(statRange);
   if(r.start&&r.end){ const endIncl=new Date(r.end); endIncl.setDate(endIncl.getDate()-1);
     document.getElementById('rbStart').value=toISO(r.start); document.getElementById('rbEnd').value=toISO(endIncl); }
-  host.querySelectorAll('.rb').forEach(b=>b.onclick=()=>{ statRange=b.dataset.r; buildRangeBar(); renderKPIs(); });
+  host.querySelectorAll('.rb').forEach(b=>b.onclick=()=>{ statRange=b.dataset.r; buildRangeBar(); renderKPIs(); renderCreatedTable(); });
   const applyCustom=()=>{ let s=document.getElementById('rbStart').value, e=document.getElementById('rbEnd').value;
     if(!s||!e) return; if(s>e){ const t=s; s=e; e=t; }
-    customStart=s; customEnd=e; statRange='custom'; buildRangeBar(); renderKPIs(); };
+    customStart=s; customEnd=e; statRange='custom'; buildRangeBar(); renderKPIs(); renderCreatedTable(); };
   document.getElementById('rbStart').onchange=applyCustom;
   document.getElementById('rbEnd').onchange=applyCustom;
 }
@@ -869,9 +875,57 @@ function renderFunnel(){
     openDealsModal(`Closed Won · created ${rangeLabelText()}`, `${list.length} deal${list.length===1?'':'s'} · ${money(wa)}`, list); };
 }
 
+/* ============================ CREATED-IN-RANGE TABLE (owner × stage) ============================ */
+function renderCreatedTable(){
+  const host=document.getElementById('t_created');
+  const r=getRange(statRange);
+  const createdDate=(d)=>{ const a=parseDate(d.sfdc_created_at), b=parseDate(d._created_at); return (a&&b)?(a<b?a:b):(a||b||null); };
+  const cohort=DATA.deals.filter(d=>{ const dt=createdDate(d); return dt && dt>=r.start && dt<r.end && STAGE_COLOR[d.stage]; });
+  document.getElementById('createdSub').textContent=`Created ${rangeLabelText()} · ${cohort.length} deals · count (bold) & amount`;
+  if(!cohort.length){ host.innerHTML='<p class="nodata">No deals created in the selected range.</p>'; return; }
+
+  const cCnt={},cAmt={},keys=new Set();
+  cohort.forEach(d=>{ const k=ownerName(d); const st=d.stage; keys.add(k);
+    (cCnt[k]=cCnt[k]||{})[st]=(cCnt[k][st]||0)+1; (cAmt[k]=cAmt[k]||{})[st]=(cAmt[k][st]||0)+num(d.amount); });
+  const cols=STAGE_ORDER.filter(st=>cohort.some(d=>d.stage===st));
+  const rowCnt={},rowAmt={}; [...keys].forEach(k=>{ let c=0,a=0; cols.forEach(st=>{c+=cCnt[k]?.[st]||0;a+=cAmt[k]?.[st]||0;}); rowCnt[k]=c; rowAmt[k]=a; });
+  const rows=[...keys].filter(k=>rowCnt[k]>0).sort((x,y)=>rowCnt[y]-rowCnt[x]);
+  const colCnt={},colAmt={}; cols.forEach(st=>{ let c=0,a=0; rows.forEach(k=>{c+=cCnt[k]?.[st]||0;a+=cAmt[k]?.[st]||0;}); colCnt[st]=c; colAmt[st]=a; });
+  const gCnt=rows.reduce((s,k)=>s+rowCnt[k],0), gAmt=rows.reduce((s,k)=>s+rowAmt[k],0);
+  let maxCnt=0; rows.forEach(k=>cols.forEach(st=>{const v=cCnt[k]?.[st]||0;if(v>maxCnt)maxCnt=v;}));
+
+  const clk=(row,st)=>`data-cclk="1" data-row="${esc(row)}" data-stage="${esc(st)}"`;
+  const cell=(cnt,amt,row,st)=>{ if(!cnt) return '<td class="z">–</td>';
+    const a=(cnt/maxCnt*0.28).toFixed(3);
+    return `<td class="clk cclk" ${clk(row,st)} style="background:rgba(var(--heat),${a})"><div class="c">${cnt.toLocaleString()}</div><div class="a">${money(amt)}</div></td>`; };
+  const totCell=(cnt,amt,cls,row,st)=> cnt
+    ? `<td class="clk cclk ${cls}" ${clk(row,st)}><div class="c">${cnt.toLocaleString()}</div><div class="a">${money(amt)}</div></td>`
+    : `<td class="${cls} z">–</td>`;
+
+  let h='<table class="st"><thead><tr><th>Owner</th>';
+  cols.forEach(c=>{h+=`<th><span class="stagehead"><span class="sw" style="background:${STAGE_COLOR[c]}"></span>${c}</span></th>`;});
+  h+='<th class="tot">Total</th></tr></thead><tbody>';
+  rows.forEach(k=>{ h+='<tr><td>'+esc(k)+'</td>';
+    cols.forEach(c=>{h+=cell(cCnt[k]?.[c]||0,cAmt[k]?.[c]||0,k,c);});
+    h+=totCell(rowCnt[k],rowAmt[k],"tot",k,"*")+'</tr>'; });
+  h+='</tbody><tfoot><tr><td>Total</td>';
+  cols.forEach(c=>{h+=totCell(colCnt[c],colAmt[c],"","*",c);});
+  h+=totCell(gCnt,gAmt,"tot","*","*")+'</tr></tfoot></table>';
+  host.innerHTML=h;
+
+  host.querySelectorAll('td.cclk').forEach(td=>td.onclick=()=>{
+    const row=td.dataset.row, st=td.dataset.stage;
+    const list=cohort.filter(d=>{ if(row!=='*'&&ownerName(d)!==row)return false; if(st!=='*'&&d.stage!==st)return false; return true; })
+      .sort((a,b)=>num(b.amount)-num(a.amount));
+    openDealsModal(`${row==='*'?'All owners':row} · ${st==='*'?'all stages':st} · created ${rangeLabelText()}`,
+      `${list.length} deal${list.length===1?'':'s'} · ${money(list.reduce((s,d)=>s+num(d.amount),0))}`, list);
+  });
+}
+
 /* ============================ RENDER ALL ============================ */
 function renderAll(){
   renderKPIs();
+  renderCreatedTable();
   renderPipeline();
   renderWonWeek();
   renderWonMonth();
