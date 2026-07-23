@@ -244,6 +244,7 @@
   <div class="section-label">Deals created in range &mdash; by owner &amp; stage</div>
   <div class="card">
     <div class="chead"><h3>Created deals &middot; owner &times; stage</h3><span class="hint" id="createdSub"></span></div>
+    <div class="filterbar"><span class="flabel">Created</span><div class="rangebar" id="createdRangeBar"></div></div>
     <div class="tbl-scroll" id="t_created"></div>
   </div>
 
@@ -749,13 +750,14 @@ function renderPipeline(){
 /* ============================ KPIs (time-range driven) ============================ */
 const RANGES=[['thisWeek','This week'],['lastWeek','Last week'],['thisMonth','This month'],
   ['lastMonth','Last month'],['thisQuarter','This quarter'],['lastQuarter','Last quarter'],['thisYear','This year']];
-let statRange='thisYear', customStart=null, customEnd=null;
+const perfRange={range:'thisYear',customStart:null,customEnd:null};      // Performance stats
+const createdRange={range:'thisYear',customStart:null,customEnd:null};   // Created-in-range table
 const toISO=(d)=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-function getRange(key){
+function computeRange(key, cs, ce){
   const now=new Date(); now.setHours(0,0,0,0);
   const y=now.getFullYear(), m=now.getMonth(), mk=(yy,mm,dd)=>new Date(yy,mm,dd);
   if(key==='custom'){
-    const s=parseDate(customStart), e=parseDate(customEnd);
+    const s=parseDate(cs), e=parseDate(ce);
     if(s&&e){ const ee=new Date(e); ee.setDate(ee.getDate()+1); return {start:s,end:ee}; }
     return {start:mk(y,0,1),end:mk(y+1,0,1)};
   }
@@ -769,25 +771,33 @@ function getRange(key){
     default:return{start:mk(y,0,1),end:mk(y+1,0,1)};
   }
 }
-function buildRangeBar(){
-  const host=document.getElementById('rangeBar');
-  const chips=RANGES.map(([k,l])=>`<button class="rb ${k===statRange?'on':''}" data-r="${k}">${l}</button>`).join('');
-  host.innerHTML=chips+
-    `<span class="rb-custom ${statRange==='custom'?'on':''}" title="Custom date range">`+
-    `<input type="date" class="rb-date" id="rbStart"><span class="rb-sep">–</span><input type="date" class="rb-date" id="rbEnd"></span>`;
-  const r=getRange(statRange);
+const rangeOf=(st)=>computeRange(st.range, st.customStart, st.customEnd);
+function rangeLabelFor(st){
+  const r=rangeOf(st); const end=new Date(r.end); end.setDate(end.getDate()-1);
+  const o={month:'short',day:'numeric',year:'numeric'};
+  return r.start.toLocaleDateString(undefined,o)+' – '+end.toLocaleDateString(undefined,o);
+}
+/* backward-compat helpers (Performance range) for any dormant code */
+function getRange(){ return rangeOf(perfRange); }
+function rangeLabelText(){ return rangeLabelFor(perfRange); }
+/* reusable range bar: quick filters + custom calendar, bound to a state object */
+function renderRangeBar(hostEl, st, onChange){
+  const chips=RANGES.map(([k,l])=>`<button class="rb ${st.range===k?'on':''}" data-r="${k}">${l}</button>`).join('');
+  hostEl.innerHTML=chips+
+    `<span class="rb-custom ${st.range==='custom'?'on':''}" title="Custom date range">`+
+    `<input type="date" class="rb-date rb-s"><span class="rb-sep">–</span><input type="date" class="rb-date rb-e"></span>`;
+  const r=rangeOf(st), sEl=hostEl.querySelector('.rb-s'), eEl=hostEl.querySelector('.rb-e');
   if(r.start&&r.end){ const endIncl=new Date(r.end); endIncl.setDate(endIncl.getDate()-1);
-    document.getElementById('rbStart').value=toISO(r.start); document.getElementById('rbEnd').value=toISO(endIncl); }
-  host.querySelectorAll('.rb').forEach(b=>b.onclick=()=>{ statRange=b.dataset.r; buildRangeBar(); renderKPIs(); renderCreatedTable(); });
-  const applyCustom=()=>{ let s=document.getElementById('rbStart').value, e=document.getElementById('rbEnd').value;
-    if(!s||!e) return; if(s>e){ const t=s; s=e; e=t; }
-    customStart=s; customEnd=e; statRange='custom'; buildRangeBar(); renderKPIs(); renderCreatedTable(); };
-  document.getElementById('rbStart').onchange=applyCustom;
-  document.getElementById('rbEnd').onchange=applyCustom;
+    sEl.value=toISO(r.start); eEl.value=toISO(endIncl); }
+  hostEl.querySelectorAll('.rb').forEach(b=>b.onclick=()=>{ st.range=b.dataset.r; renderRangeBar(hostEl,st,onChange); onChange(); });
+  const applyCustom=()=>{ let s=sEl.value,e=eEl.value; if(!s||!e) return; if(s>e){const t=s;s=e;e=t;}
+    st.customStart=s; st.customEnd=e; st.range='custom'; renderRangeBar(hostEl,st,onChange); onChange(); };
+  sEl.onchange=applyCustom; eEl.onchange=applyCustom;
 }
 function renderKPIs(){
   const D=DATA.deals;
   const today=new Date(); today.setHours(0,0,0,0);
+  const rr=rangeOf(perfRange);
 
   // Open pipeline — live snapshot, NOT date-filtered
   const open=D.filter(d=>OPEN_STAGES.includes(d.stage));
@@ -796,7 +806,7 @@ function renderKPIs(){
     `<div class="kpi"><div class="label">Open pipeline</div><div class="val">${money(openAmt)}</div><div class="sub">${open.length} open deals · live snapshot (not date-filtered)</div></div>`;
 
   // Everything else — driven by the selected time range (by relevant date)
-  const r=getRange(statRange);
+  const r=rr;
   const inR=(s)=>{ const dt=parseDate(s); return dt && dt>=r.start && dt<r.end; };
   const wonR=D.filter(d=>d.stage===WON && inR(d.close_date));
   const lostR=D.filter(d=>LOST.has(d.stage) && inR(d.close_date));
@@ -826,62 +836,13 @@ function renderKPIs(){
     `<div class="kpi"><div class="label">${k.label}</div><div class="val">${k.val}</div><div class="sub">${k.sub}</div></div>`).join('');
 }
 
-/* ============================ PIPELINE FUNNEL ============================ */
-function rangeLabelText(){
-  const r=getRange(statRange); const end=new Date(r.end); end.setDate(end.getDate()-1);
-  const o={month:'short',day:'numeric',year:'numeric'};
-  return r.start.toLocaleDateString(undefined,o)+' – '+end.toLocaleDateString(undefined,o);
-}
-function renderFunnel(){
-  const r=getRange(statRange);
-  const createdDate=(d)=>{ const a=parseDate(d.sfdc_created_at), b=parseDate(d._created_at); return (a&&b)?(a<b?a:b):(a||b||null); };
-  const cohort=DATA.deals.filter(d=>{ if(!(d.stage in ORDER_IDX)) return false; const dt=createdDate(d); return dt&&dt>=r.start&&dt<r.end; });
-  const idx=(d)=>ORDER_IDX[d.stage];
-  const reached=(i)=>cohort.filter(d=>idx(d)>=i);
-  const at=(i)=>cohort.filter(d=>idx(d)===i);
-  const sum=(arr)=>arr.reduce((s,d)=>s+num(d.amount),0);
-  const top=reached(0).length||1;
-  document.getElementById('funnelSub').textContent='Deals created: '+rangeLabelText()+' · '+cohort.length+' deals in cohort';
-
-  let h='<div class="fn-grid"><div class="fn-row fn-head">'+
-    '<div class="fh">Stage</div><div class="fh fn-num">Converted count</div><div class="fh fn-num">Converted amount</div>'+
-    '<div class="fh" style="text-align:center">Funnel</div><div class="fh fn-num">Deals count</div><div class="fh fn-num">Deals amount</div></div>';
-  FUNNEL_STAGES.forEach(s=>{
-    const i=ORDER_IDX[s], rc=reached(i), ac=at(i);
-    const conv=rc.length, convAmt=sum(rc), dc=ac.length, dAmt=sum(ac);
-    const pct=Math.round(conv/top*100), w=Math.max(conv/top*100, 8), color=FUNNEL_COLOR[s];
-    h+=`<div class="fn-row">`+
-      `<div class="fn-stage"><span class="fn-dot" style="background:${color}"></span>${s}</div>`+
-      `<div class="fn-num conv">${conv.toLocaleString()}</div>`+
-      `<div class="fn-num conv">${money(convAmt)}</div>`+
-      `<div class="fn-bar-cell"><div class="fn-bar" data-i="${i}" style="width:${w}%;background:${color}">${conv.toLocaleString()}<small>${pct}%</small></div></div>`+
-      `<div class="fn-num">${dc.toLocaleString()}</div>`+
-      `<div class="fn-num">${money(dAmt)}</div></div>`;
-  });
-  h+='</div>';
-  const wonI=ORDER_IDX[WON], won=at(wonI), wc=won.length, wa=sum(won);
-  h+=`<div class="fn-won">`+
-    `<div class="fw-title"><span class="fw-badge">🏆</span><div>Closed Won<div style="font-weight:600;color:var(--ink2);font-size:11.5px">Deals successfully won</div></div></div>`+
-    `<div class="fw-cell"><div class="v">${wc.toLocaleString()}</div><div class="l">Converted count</div></div>`+
-    `<div class="fw-cell"><div class="v">${money(wa)}</div><div class="l">Converted amount</div></div>`+
-    `<div class="fw-cell"><div class="v">${wc.toLocaleString()}</div><div class="l">Deals count</div></div>`+
-    `<div class="fw-cell"><div class="v">${money(wa)}</div><div class="l">Deals amount</div></div></div>`;
-  const host=document.getElementById('funnelBody'); host.innerHTML=h;
-  host.querySelectorAll('.fn-bar').forEach(b=>b.onclick=()=>{ const i=+b.dataset.i;
-    const list=reached(i).slice().sort((a,c)=>num(c.amount)-num(a.amount));
-    openDealsModal(`Reached ${PIPELINE_SEQ[i]} · created ${rangeLabelText()}`, `${list.length} deal${list.length===1?'':'s'} · ${money(sum(list))}`, list); });
-  const wonEl=host.querySelector('.fn-won'); wonEl.style.cursor='pointer';
-  wonEl.onclick=()=>{ const list=won.slice().sort((a,c)=>num(c.amount)-num(a.amount));
-    openDealsModal(`Closed Won · created ${rangeLabelText()}`, `${list.length} deal${list.length===1?'':'s'} · ${money(wa)}`, list); };
-}
-
 /* ============================ CREATED-IN-RANGE TABLE (owner × stage) ============================ */
 function renderCreatedTable(){
   const host=document.getElementById('t_created');
-  const r=getRange(statRange);
+  const r=rangeOf(createdRange);
   const createdDate=(d)=>{ const a=parseDate(d.sfdc_created_at), b=parseDate(d._created_at); return (a&&b)?(a<b?a:b):(a||b||null); };
   const cohort=DATA.deals.filter(d=>{ const dt=createdDate(d); return dt && dt>=r.start && dt<r.end && STAGE_COLOR[d.stage]; });
-  document.getElementById('createdSub').textContent=`Created ${rangeLabelText()} · ${cohort.length} deals · count (bold) & amount`;
+  document.getElementById('createdSub').textContent=`${cohort.length} deals · count (bold) & amount`;
   if(!cohort.length){ host.innerHTML='<p class="nodata">No deals created in the selected range.</p>'; return; }
 
   const cCnt={},cAmt={},keys=new Set();
@@ -917,7 +878,7 @@ function renderCreatedTable(){
     const row=td.dataset.row, st=td.dataset.stage;
     const list=cohort.filter(d=>{ if(row!=='*'&&ownerName(d)!==row)return false; if(st!=='*'&&d.stage!==st)return false; return true; })
       .sort((a,b)=>num(b.amount)-num(a.amount));
-    openDealsModal(`${row==='*'?'All owners':row} · ${st==='*'?'all stages':st} · created ${rangeLabelText()}`,
+    openDealsModal(`${row==='*'?'All owners':row} · ${st==='*'?'all stages':st} · created ${rangeLabelFor(createdRange)}`,
       `${list.length} deal${list.length===1?'':'s'} · ${money(list.reduce((s,d)=>s+num(d.amount),0))}`, list);
   });
 }
@@ -971,7 +932,8 @@ renderChipBar(document.getElementById('fb_pipeline'), stageFilter, renderPipelin
 renderChipBar(document.getElementById('fb_aeIndia'), tableFilters.aeIndia, renderAeIndia);
 renderChipBar(document.getElementById('fb_partner'), tableFilters.partner, renderPartner);
 buildWonControls();
-buildRangeBar();
+renderRangeBar(document.getElementById('rangeBar'), perfRange, renderKPIs);
+renderRangeBar(document.getElementById('createdRangeBar'), createdRange, renderCreatedTable);
 refresh();
 setInterval(refresh, REFRESH_MS);
 document.getElementById('refreshBtn').addEventListener('click',refresh);
