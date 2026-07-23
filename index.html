@@ -58,6 +58,12 @@
     padding:4px 11px;font-size:12px;font-weight:600;cursor:pointer;}
   .rb:hover{border-color:var(--accent);color:var(--accent);}
   .rb.on{background:var(--accent);color:#fff;border-color:var(--accent);}
+  .rb-custom{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--border);border-radius:20px;
+    padding:2px 10px;background:var(--surface);}
+  .rb-custom.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,var(--surface));}
+  .rb-date{border:0;background:transparent;color:var(--ink);font-size:12px;font-weight:600;font-family:inherit;
+    padding:3px 2px;cursor:pointer;color-scheme:light dark;}
+  .rb-sep{color:var(--muted);font-size:12px;}
 
   /* pipeline funnel */
   .fn-scroll{overflow-x:auto;}
@@ -521,6 +527,28 @@ const trendLabels={ id:'trendLabels', afterDatasetsDraw(chart){
   ctx.restore();
 }};
 
+/* plugin: owner name + value labels on each grouped comparison bar (vertical) */
+const groupBarLabels={ id:'groupBarLabels', afterDatasetsDraw(chart){
+  const {ctx}=chart, isAmt=chart.$metric==='amount';
+  ctx.save(); ctx.font='700 9.5px system-ui,-apple-system,sans-serif';
+  chart.data.datasets.forEach((ds,di)=>{
+    const meta=chart.getDatasetMeta(di); if(meta.hidden) return;
+    meta.data.forEach((bar,i)=>{ const v=ds.data[i]; if(!v) return;
+      const label=ds.label+' · '+(isAmt?money(v):v);
+      const barH=bar.base-bar.y, tw=ctx.measureText(label).width;
+      if(tw < barH-10){ // fits inside the bar, reading bottom→top in white
+        ctx.save(); ctx.translate(bar.x, bar.base-6); ctx.rotate(-Math.PI/2);
+        ctx.textAlign='left'; ctx.textBaseline='middle'; ctx.fillStyle='#fff'; ctx.fillText(label,0,0); ctx.restore();
+      } else { // too short — value only, above the bar
+        ctx.save(); ctx.translate(bar.x, bar.y-4); ctx.rotate(-Math.PI/2);
+        ctx.textAlign='left'; ctx.textBaseline='middle'; ctx.fillStyle=css('--ink2');
+        ctx.fillText(isAmt?money(v):(''+v),0,0); ctx.restore();
+      }
+    });
+  });
+  ctx.restore();
+}};
+
 /* plugin: alternating shaded bands per category, so each week/month group reads as one block */
 const groupBands={ id:'groupBands', beforeDraw(chart){
   const {ctx, chartArea:{left,right,top,bottom}}=chart;
@@ -603,8 +631,8 @@ function renderWonTrend(canvasId, kind){
       maxBarThickness:26, categoryPercentage:0.7, barPercentage:0.92,
       data:buckets.map(b=> b.byOwner[o]? (metric==='amount'?b.byOwner[o].amount:b.byOwner[o].count):0)}));
     wonCharts[canvasId]=new Chart(document.getElementById(canvasId),{ type:'bar',
-      data:{labels,datasets}, plugins:[groupBands],
-      options:{responsive:true,maintainAspectRatio:false,animation:{duration:300},
+      data:{labels,datasets}, plugins:[groupBands,groupBarLabels],
+      options:{responsive:true,maintainAspectRatio:false,animation:{duration:300},layout:{padding:{top:22}},
         onClick:(e,els)=>{ if(!els.length) return; const el=els[0]; const o=datasets[el.datasetIndex].label;
           const b=buckets[el.index]; const list=(b.byOwner[o]&&b.byOwner[o].deals)||[];
           openDealsModal(`Closed Won · ${o} · ${periodLabel(b)}`,
@@ -619,6 +647,7 @@ function renderWonTrend(canvasId, kind){
             ticks:{color:t.muted,font:{size:11},callback:(v)=> metric==='amount'?money(v):v},
             title:{display:true,text: metric==='amount'?'Closed-won amount':'Closed-won deals',color:t.muted,font:{size:11}}}
         }}});
+    wonCharts[canvasId].$metric=metric;
     wonCharts[canvasId].update();
   }
 }
@@ -713,10 +742,16 @@ function renderPipeline(){
 /* ============================ KPIs (time-range driven) ============================ */
 const RANGES=[['thisWeek','This week'],['lastWeek','Last week'],['thisMonth','This month'],
   ['lastMonth','Last month'],['thisQuarter','This quarter'],['lastQuarter','Last quarter'],['thisYear','This year']];
-let statRange='thisYear';
+let statRange='thisYear', customStart=null, customEnd=null;
+const toISO=(d)=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 function getRange(key){
   const now=new Date(); now.setHours(0,0,0,0);
   const y=now.getFullYear(), m=now.getMonth(), mk=(yy,mm,dd)=>new Date(yy,mm,dd);
+  if(key==='custom'){
+    const s=parseDate(customStart), e=parseDate(customEnd);
+    if(s&&e){ const ee=new Date(e); ee.setDate(ee.getDate()+1); return {start:s,end:ee}; }
+    return {start:mk(y,0,1),end:mk(y+1,0,1)};
+  }
   switch(key){
     case 'thisWeek':{const s=startOfWeek(now);const e=new Date(s);e.setDate(e.getDate()+7);return{start:s,end:e};}
     case 'lastWeek':{const s=startOfWeek(now);s.setDate(s.getDate()-7);const e=new Date(s);e.setDate(e.getDate()+7);return{start:s,end:e};}
@@ -729,8 +764,19 @@ function getRange(key){
 }
 function buildRangeBar(){
   const host=document.getElementById('rangeBar');
-  host.innerHTML=RANGES.map(([k,l])=>`<button class="rb ${k===statRange?'on':''}" data-r="${k}">${l}</button>`).join('');
+  const chips=RANGES.map(([k,l])=>`<button class="rb ${k===statRange?'on':''}" data-r="${k}">${l}</button>`).join('');
+  host.innerHTML=chips+
+    `<span class="rb-custom ${statRange==='custom'?'on':''}" title="Custom date range">`+
+    `<input type="date" class="rb-date" id="rbStart"><span class="rb-sep">–</span><input type="date" class="rb-date" id="rbEnd"></span>`;
+  const r=getRange(statRange);
+  if(r.start&&r.end){ const endIncl=new Date(r.end); endIncl.setDate(endIncl.getDate()-1);
+    document.getElementById('rbStart').value=toISO(r.start); document.getElementById('rbEnd').value=toISO(endIncl); }
   host.querySelectorAll('.rb').forEach(b=>b.onclick=()=>{ statRange=b.dataset.r; buildRangeBar(); renderKPIs(); });
+  const applyCustom=()=>{ let s=document.getElementById('rbStart').value, e=document.getElementById('rbEnd').value;
+    if(!s||!e) return; if(s>e){ const t=s; s=e; e=t; }
+    customStart=s; customEnd=e; statRange='custom'; buildRangeBar(); renderKPIs(); };
+  document.getElementById('rbStart').onchange=applyCustom;
+  document.getElementById('rbEnd').onchange=applyCustom;
 }
 function renderKPIs(){
   const D=DATA.deals;
