@@ -714,7 +714,10 @@ function renderKPIs(){
   const wonAmt=wonR.reduce((s,d)=>s+num(d.amount),0);
   const winRate=(wonR.length+lostR.length)?(wonR.length/(wonR.length+lostR.length)*100):0;
   const avgWon=wonR.length?wonAmt/wonR.length:0;
-  const createdR=D.filter(d=>inR(d._created_at) && d.stage!=="0. Potential");
+  // created date = earlier of sfdc_created_at and _created_at
+  const createdDate=(d)=>{ const a=parseDate(d.sfdc_created_at), b=parseDate(d._created_at);
+    return (a&&b) ? (a<b?a:b) : (a||b||null); };
+  const createdR=D.filter(d=>{ const dt=createdDate(d); return dt && dt>=r.start && dt<r.end && d.stage!=="0. Potential"; });
   const discR=DATA.meetings.filter(m=>{
     const t=(m.type||"").toLowerCase();
     if(!t.includes("discovery") || t.includes("scheduled")) return false;
