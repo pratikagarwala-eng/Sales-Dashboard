@@ -163,6 +163,18 @@
   table.dl th{position:sticky;top:0;background:var(--surface);color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.03em;font-weight:600;}
   table.dl td.num{text-align:right;font-variant-numeric:tabular-nums;}
   table.dl td.dealcell{white-space:normal;min-width:220px;max-width:340px;}
+  .lost-scroll{max-height:470px;overflow:auto;}
+  table.lostt{border-collapse:collapse;width:100%;font-size:12.5px;table-layout:fixed;}
+  table.lostt th,table.lostt td{padding:0 12px;height:38px;text-align:left;border-bottom:1px solid var(--grid);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  table.lostt th{position:sticky;top:0;background:var(--surface);color:var(--muted);font-size:11px;
+    text-transform:uppercase;letter-spacing:.03em;font-weight:600;z-index:1;}
+  table.lostt td.num{text-align:right;font-variant-numeric:tabular-nums;}
+  table.lostt td.reason{color:var(--ink2);}
+  table.lostt .sdot{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:6px;vertical-align:middle;}
+  table.lostt a.dname{color:var(--accent);font-weight:600;text-decoration:none;}
+  table.lostt a.dname:hover{text-decoration:underline;}
+  table.lostt tr:hover td{background:color-mix(in srgb,var(--accent) 5%,var(--surface));}
   table.dl a.dname{color:var(--accent);font-weight:600;text-decoration:none;}
   table.dl a.dname:hover{text-decoration:underline;}
   table.dl tr:hover td{background:color-mix(in srgb,var(--accent) 5%,var(--surface));}
@@ -249,6 +261,12 @@
     <div class="chead"><h3>Created deals &middot; owner &times; stage</h3><span class="hint" id="createdSub"></span></div>
     <div class="filterbar"><span class="flabel">Created</span><div class="rangebar" id="createdRangeBar"></div></div>
     <div class="tbl-scroll" id="t_created"></div>
+  </div>
+
+  <div class="section-label">Closed Lost / LTO &mdash; last 5 weeks</div>
+  <div class="card">
+    <div class="chead"><h3>Lost &amp; LTO deals &middot; with reason</h3><span class="hint" id="lostSub"></span></div>
+    <div class="tbl-scroll lost-scroll" id="t_lost"></div>
   </div>
 
   <footer>
@@ -888,10 +906,47 @@ function renderCreatedTable(){
   });
 }
 
+/* ============================ CLOSED LOST / LTO — LAST 5 WEEKS ============================ */
+function renderLostTable(){
+  const host=document.getElementById('t_lost');
+  const now=new Date(); now.setHours(0,0,0,0);
+  const start=startOfWeek(now); start.setDate(start.getDate()-7*(WEEKS-1));
+  const end=startOfWeek(now); end.setDate(end.getDate()+7);
+  const reasonOf=(d)=> (d.closed_lost_reason||d.closed_lost_rationale||d.closed_detail||d.lost_deal_reason||"").trim() || "—";
+  const list=DATA.deals.filter(d=>{
+    if(d.stage!=="Closed Lost" && d.stage!=="Closed LTO") return false;
+    const dt=parseDate(d.close_date); return dt && dt>=start && dt<end;
+  }).sort((a,b)=> (parseDate(b.close_date)-parseDate(a.close_date)) || (num(b.amount)-num(a.amount)));
+  const o={month:'short',day:'numeric'}; const endIncl=new Date(end); endIncl.setDate(endIncl.getDate()-1);
+  const amt=list.reduce((s,d)=>s+num(d.amount),0);
+  document.getElementById('lostSub').textContent=
+    `${start.toLocaleDateString(undefined,o)} – ${endIncl.toLocaleDateString(undefined,o)} · ${list.length} deals · ${money(amt)}`;
+  if(!list.length){ host.innerHTML='<p class="nodata">No Closed Lost / LTO deals in the last 5 weeks.</p>'; return; }
+  let h='<table class="lostt"><colgroup>'+
+    '<col style="width:26%"><col style="width:9%"><col style="width:13%"><col style="width:11%"><col style="width:13%"><col style="width:28%">'+
+    '</colgroup><thead><tr>'+
+    '<th>Deal</th><th class="num">Amount</th><th>Stage</th><th>Close date</th><th>Owner</th><th>Lost reason</th>'+
+    '</tr></thead><tbody>';
+  list.forEach(d=>{
+    const nm=d.name||'(untitled deal)', rs=reasonOf(d);
+    h+='<tr>'+
+      `<td title="${esc(nm)}"><a class="dname" href="${CLARIFY(d.id)}" target="_blank" rel="noopener">${esc(nm)}</a></td>`+
+      `<td class="num">${money(num(d.amount))}</td>`+
+      `<td title="${esc(d.stage)}"><span class="sdot" style="background:${STAGE_COLOR[d.stage]}"></span>${esc(d.stage)}</td>`+
+      `<td>${fmtDate(d.close_date)}</td>`+
+      `<td title="${esc(ownerName(d))}">${esc(ownerName(d))}</td>`+
+      `<td class="reason" title="${esc(rs)}">${esc(rs)}</td>`+
+    '</tr>';
+  });
+  h+='</tbody></table>';
+  host.innerHTML=h;
+}
+
 /* ============================ RENDER ALL ============================ */
 function renderAll(){
   renderKPIs();
   renderCreatedTable();
+  renderLostTable();
   renderPipeline();
   renderWonWeek();
   renderWonMonth();
