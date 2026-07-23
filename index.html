@@ -58,6 +58,32 @@
     padding:4px 11px;font-size:12px;font-weight:600;cursor:pointer;}
   .rb:hover{border-color:var(--accent);color:var(--accent);}
   .rb.on{background:var(--accent);color:#fff;border-color:var(--accent);}
+
+  /* pipeline funnel */
+  .fn-scroll{overflow-x:auto;}
+  .fn-grid{min-width:720px;}
+  .fn-row{display:grid;grid-template-columns:minmax(140px,1.5fr) .8fr 1.1fr minmax(150px,2fr) .8fr 1.1fr;
+    align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--grid);}
+  .fn-head{border-bottom:2px solid var(--axis);padding-bottom:8px;}
+  .fn-head .fh{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);}
+  .fn-num{text-align:right;font-variant-numeric:tabular-nums;font-weight:600;font-size:13px;}
+  .fn-num.conv{color:var(--accent);}
+  .fn-stage{display:flex;align-items:center;gap:8px;font-weight:600;font-size:13px;}
+  .fn-dot{width:10px;height:10px;border-radius:50%;flex:none;}
+  .fn-bar-cell{display:flex;justify-content:center;}
+  .fn-bar{color:#fff;border-radius:8px;padding:8px 8px;text-align:center;min-width:64px;max-width:100%;
+    line-height:1.1;cursor:pointer;font-weight:800;font-size:17px;box-shadow:0 1px 3px rgba(0,0,0,.18);transition:filter .12s;}
+  .fn-bar:hover{filter:brightness(1.06);}
+  .fn-bar small{display:block;font-weight:600;font-size:10.5px;opacity:.92;margin-top:2px;}
+  .fn-won{margin-top:16px;border:1px solid color-mix(in srgb,var(--good) 40%,var(--border));border-radius:12px;
+    background:color-mix(in srgb,var(--good) 8%,var(--surface));padding:14px 16px;
+    display:grid;grid-template-columns:1.6fr 1fr 1fr 1fr 1fr;gap:12px;align-items:center;}
+  .fn-won .fw-title{display:flex;align-items:center;gap:10px;font-weight:800;color:var(--good);}
+  .fn-won .fw-badge{width:34px;height:34px;border-radius:50%;background:var(--good);color:#fff;display:flex;align-items:center;justify-content:center;font-size:18px;flex:none;}
+  .fn-won .fw-cell{text-align:center;}
+  .fn-won .fw-cell .v{font-size:18px;font-weight:800;color:var(--good);}
+  .fn-won .fw-cell .l{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;margin-top:2px;}
+  @media (max-width:760px){.fn-won{grid-template-columns:1fr 1fr;}}
   .kpi{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;box-shadow:var(--shadow);}
   .kpi .label{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;font-weight:600;}
   .kpi .val{font-size:24px;font-weight:700;margin-top:5px;letter-spacing:-.01em;}
@@ -161,6 +187,12 @@
     <div class="kpis" id="kpis"></div>
   </div>
 
+  <div class="section-label">Sales pipeline funnel</div>
+  <div class="card">
+    <div class="chead"><h3>Pipeline funnel</h3><span class="hint" id="funnelSub"></span></div>
+    <div class="fn-scroll"><div id="funnelBody"></div></div>
+  </div>
+
   <div class="section-label">Pipeline by stage</div>
   <div class="card">
     <div class="chead">
@@ -248,6 +280,16 @@ const OPEN_STAGES = ["1. Interest Generation","2. Demo","3. Trial","4. Proposal"
   "5. Negotiation","6. Contracts","7. POC"];
 const WON = "8. Closed Won";
 const LOST = new Set(["Closed Lost","Closed LTO","Churned"]);
+
+/* Funnel: ordered pipeline (Potential..POC) with Closed Won as the outcome. */
+const PIPELINE_SEQ = STAGE_ORDER.slice(0,9); // 0.Potential .. 8.Closed Won
+const ORDER_IDX = {}; PIPELINE_SEQ.forEach((s,i)=>ORDER_IDX[s]=i);
+const FUNNEL_STAGES = STAGE_ORDER.slice(0,8); // Potential .. POC (Won shown as summary)
+const FUNNEL_COLOR = {
+  "0. Potential":"#6d4bd8","1. Interest Generation":"#4361d6","2. Demo":"#2f86d9",
+  "3. Trial":"#1aa5b0","4. Proposal":"#1fa588","5. Negotiation":"#3fae5a",
+  "6. Contracts":"#8ab52f","7. POC":"#e0912a"
+};
 
 /* ============================ THEME HELPERS ============================ */
 const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
@@ -694,7 +736,7 @@ function getRange(key){
 function buildRangeBar(){
   const host=document.getElementById('rangeBar');
   host.innerHTML=RANGES.map(([k,l])=>`<button class="rb ${k===statRange?'on':''}" data-r="${k}">${l}</button>`).join('');
-  host.querySelectorAll('.rb').forEach(b=>b.onclick=()=>{ statRange=b.dataset.r; buildRangeBar(); renderKPIs(); });
+  host.querySelectorAll('.rb').forEach(b=>b.onclick=()=>{ statRange=b.dataset.r; buildRangeBar(); renderKPIs(); renderFunnel(); });
 }
 function renderKPIs(){
   const D=DATA.deals;
@@ -737,9 +779,59 @@ function renderKPIs(){
     `<div class="kpi"><div class="label">${k.label}</div><div class="val">${k.val}</div><div class="sub">${k.sub}</div></div>`).join('');
 }
 
+/* ============================ PIPELINE FUNNEL ============================ */
+function rangeLabelText(){
+  const r=getRange(statRange); const end=new Date(r.end); end.setDate(end.getDate()-1);
+  const o={month:'short',day:'numeric',year:'numeric'};
+  return r.start.toLocaleDateString(undefined,o)+' – '+end.toLocaleDateString(undefined,o);
+}
+function renderFunnel(){
+  const r=getRange(statRange);
+  const createdDate=(d)=>{ const a=parseDate(d.sfdc_created_at), b=parseDate(d._created_at); return (a&&b)?(a<b?a:b):(a||b||null); };
+  const cohort=DATA.deals.filter(d=>{ if(!(d.stage in ORDER_IDX)) return false; const dt=createdDate(d); return dt&&dt>=r.start&&dt<r.end; });
+  const idx=(d)=>ORDER_IDX[d.stage];
+  const reached=(i)=>cohort.filter(d=>idx(d)>=i);
+  const at=(i)=>cohort.filter(d=>idx(d)===i);
+  const sum=(arr)=>arr.reduce((s,d)=>s+num(d.amount),0);
+  const top=reached(0).length||1;
+  document.getElementById('funnelSub').textContent='Deals created: '+rangeLabelText()+' · '+cohort.length+' deals in cohort';
+
+  let h='<div class="fn-grid"><div class="fn-row fn-head">'+
+    '<div class="fh">Stage</div><div class="fh fn-num">Converted count</div><div class="fh fn-num">Converted amount</div>'+
+    '<div class="fh" style="text-align:center">Funnel</div><div class="fh fn-num">Deals count</div><div class="fh fn-num">Deals amount</div></div>';
+  FUNNEL_STAGES.forEach(s=>{
+    const i=ORDER_IDX[s], rc=reached(i), ac=at(i);
+    const conv=rc.length, convAmt=sum(rc), dc=ac.length, dAmt=sum(ac);
+    const pct=Math.round(conv/top*100), w=Math.max(conv/top*100, 8), color=FUNNEL_COLOR[s];
+    h+=`<div class="fn-row">`+
+      `<div class="fn-stage"><span class="fn-dot" style="background:${color}"></span>${s}</div>`+
+      `<div class="fn-num conv">${conv.toLocaleString()}</div>`+
+      `<div class="fn-num conv">${money(convAmt)}</div>`+
+      `<div class="fn-bar-cell"><div class="fn-bar" data-i="${i}" style="width:${w}%;background:${color}">${conv.toLocaleString()}<small>${pct}%</small></div></div>`+
+      `<div class="fn-num">${dc.toLocaleString()}</div>`+
+      `<div class="fn-num">${money(dAmt)}</div></div>`;
+  });
+  h+='</div>';
+  const wonI=ORDER_IDX[WON], won=at(wonI), wc=won.length, wa=sum(won);
+  h+=`<div class="fn-won">`+
+    `<div class="fw-title"><span class="fw-badge">🏆</span><div>Closed Won<div style="font-weight:600;color:var(--ink2);font-size:11.5px">Deals successfully won</div></div></div>`+
+    `<div class="fw-cell"><div class="v">${wc.toLocaleString()}</div><div class="l">Converted count</div></div>`+
+    `<div class="fw-cell"><div class="v">${money(wa)}</div><div class="l">Converted amount</div></div>`+
+    `<div class="fw-cell"><div class="v">${wc.toLocaleString()}</div><div class="l">Deals count</div></div>`+
+    `<div class="fw-cell"><div class="v">${money(wa)}</div><div class="l">Deals amount</div></div></div>`;
+  const host=document.getElementById('funnelBody'); host.innerHTML=h;
+  host.querySelectorAll('.fn-bar').forEach(b=>b.onclick=()=>{ const i=+b.dataset.i;
+    const list=reached(i).slice().sort((a,c)=>num(c.amount)-num(a.amount));
+    openDealsModal(`Reached ${PIPELINE_SEQ[i]} · created ${rangeLabelText()}`, `${list.length} deal${list.length===1?'':'s'} · ${money(sum(list))}`, list); });
+  const wonEl=host.querySelector('.fn-won'); wonEl.style.cursor='pointer';
+  wonEl.onclick=()=>{ const list=won.slice().sort((a,c)=>num(c.amount)-num(a.amount));
+    openDealsModal(`Closed Won · created ${rangeLabelText()}`, `${list.length} deal${list.length===1?'':'s'} · ${money(wa)}`, list); };
+}
+
 /* ============================ RENDER ALL ============================ */
 function renderAll(){
   renderKPIs();
+  renderFunnel();
   renderPipeline();
   renderWonWeek();
   renderWonMonth();
