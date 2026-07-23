@@ -163,18 +163,25 @@
   table.dl th{position:sticky;top:0;background:var(--surface);color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.03em;font-weight:600;}
   table.dl td.num{text-align:right;font-variant-numeric:tabular-nums;}
   table.dl td.dealcell{white-space:normal;min-width:220px;max-width:340px;}
-  .lost-scroll{max-height:470px;overflow:auto;}
-  table.lostt{border-collapse:collapse;width:100%;font-size:12.5px;table-layout:fixed;}
-  table.lostt th,table.lostt td{padding:0 12px;height:38px;text-align:left;border-bottom:1px solid var(--grid);
-    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-  table.lostt th{position:sticky;top:0;background:var(--surface);color:var(--muted);font-size:11px;
-    text-transform:uppercase;letter-spacing:.03em;font-weight:600;z-index:1;}
-  table.lostt td.num{text-align:right;font-variant-numeric:tabular-nums;}
-  table.lostt td.reason{color:var(--ink2);}
-  table.lostt .sdot{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:6px;vertical-align:middle;}
-  table.lostt a.dname{color:var(--accent);font-weight:600;text-decoration:none;}
-  table.lostt a.dname:hover{text-decoration:underline;}
-  table.lostt tr:hover td{background:color-mix(in srgb,var(--accent) 5%,var(--surface));}
+  /* lost/LTO board (kanban by week) */
+  .lost-board{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(230px,1fr);gap:12px;overflow-x:auto;padding-bottom:4px;}
+  .lb-col{background:var(--plane);border:1px solid var(--border);border-radius:12px;display:flex;flex-direction:column;min-width:230px;}
+  .lb-head{padding:10px 12px;border-bottom:1px solid var(--grid);position:sticky;top:0;background:var(--plane);border-radius:12px 12px 0 0;}
+  .lb-wk{font-weight:700;font-size:13px;}
+  .lb-meta{font-size:11px;color:var(--muted);margin-top:2px;}
+  .lb-cards{padding:10px;display:flex;flex-direction:column;gap:8px;max-height:540px;overflow-y:auto;}
+  .lb-empty{color:var(--muted);font-size:12px;text-align:center;padding:14px 0;}
+  .lb-card{display:block;text-decoration:none;color:inherit;background:var(--surface);border:1px solid var(--border);
+    border-left:3px solid var(--border);border-radius:9px;padding:9px 10px;box-shadow:var(--shadow);}
+  .lb-card:hover{border-color:var(--accent);}
+  .lb-name{font-weight:650;font-size:12.5px;color:var(--accent);margin-bottom:6px;
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.25;}
+  .lb-row{display:flex;justify-content:space-between;align-items:center;gap:6px;margin-bottom:5px;}
+  .lb-amt{font-weight:700;font-variant-numeric:tabular-nums;font-size:12.5px;color:var(--ink);}
+  .lb-stage{font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;white-space:nowrap;}
+  .lb-owner{font-size:11px;color:var(--ink2);margin-bottom:5px;}
+  .lb-reason{font-size:11px;color:var(--muted);line-height:1.3;
+    display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;}
   table.dl a.dname{color:var(--accent);font-weight:600;text-decoration:none;}
   table.dl a.dname:hover{text-decoration:underline;}
   table.dl tr:hover td{background:color-mix(in srgb,var(--accent) 5%,var(--surface));}
@@ -265,8 +272,8 @@
 
   <div class="section-label">Closed Lost / LTO &mdash; last 5 weeks</div>
   <div class="card">
-    <div class="chead"><h3>Lost &amp; LTO deals &middot; with reason</h3><span class="hint" id="lostSub"></span></div>
-    <div class="tbl-scroll lost-scroll" id="t_lost"></div>
+    <div class="chead"><h3>Lost &amp; LTO deals &middot; by week</h3><span class="hint" id="lostSub"></span></div>
+    <div id="t_lost"></div>
   </div>
 
   <footer>
@@ -906,39 +913,39 @@ function renderCreatedTable(){
   });
 }
 
-/* ============================ CLOSED LOST / LTO — LAST 5 WEEKS ============================ */
+/* ============================ CLOSED LOST / LTO — LAST 5 WEEKS (board) ============================ */
 function renderLostTable(){
   const host=document.getElementById('t_lost');
   const now=new Date(); now.setHours(0,0,0,0);
-  const start=startOfWeek(now); start.setDate(start.getDate()-7*(WEEKS-1));
-  const end=startOfWeek(now); end.setDate(end.getDate()+7);
+  const curMon=startOfWeek(now);
   const reasonOf=(d)=> (d.closed_lost_reason||d.closed_lost_rationale||d.closed_detail||d.lost_deal_reason||"").trim() || "—";
-  const list=DATA.deals.filter(d=>{
-    if(d.stage!=="Closed Lost" && d.stage!=="Closed LTO") return false;
-    const dt=parseDate(d.close_date); return dt && dt>=start && dt<end;
-  }).sort((a,b)=> (parseDate(b.close_date)-parseDate(a.close_date)) || (num(b.amount)-num(a.amount)));
-  const o={month:'short',day:'numeric'}; const endIncl=new Date(end); endIncl.setDate(endIncl.getDate()-1);
-  const amt=list.reduce((s,d)=>s+num(d.amount),0);
-  document.getElementById('lostSub').textContent=
-    `${start.toLocaleDateString(undefined,o)} – ${endIncl.toLocaleDateString(undefined,o)} · ${list.length} deals · ${money(amt)}`;
-  if(!list.length){ host.innerHTML='<p class="nodata">No Closed Lost / LTO deals in the last 5 weeks.</p>'; return; }
-  let h='<table class="lostt"><colgroup>'+
-    '<col style="width:26%"><col style="width:9%"><col style="width:13%"><col style="width:11%"><col style="width:13%"><col style="width:28%">'+
-    '</colgroup><thead><tr>'+
-    '<th>Deal</th><th class="num">Amount</th><th>Stage</th><th>Close date</th><th>Owner</th><th>Lost reason</th>'+
-    '</tr></thead><tbody>';
-  list.forEach(d=>{
-    const nm=d.name||'(untitled deal)', rs=reasonOf(d);
-    h+='<tr>'+
-      `<td title="${esc(nm)}"><a class="dname" href="${CLARIFY(d.id)}" target="_blank" rel="noopener">${esc(nm)}</a></td>`+
-      `<td class="num">${money(num(d.amount))}</td>`+
-      `<td title="${esc(d.stage)}"><span class="sdot" style="background:${STAGE_COLOR[d.stage]}"></span>${esc(d.stage)}</td>`+
-      `<td>${fmtDate(d.close_date)}</td>`+
-      `<td title="${esc(ownerName(d))}">${esc(ownerName(d))}</td>`+
-      `<td class="reason" title="${esc(rs)}">${esc(rs)}</td>`+
-    '</tr>';
+  const isLost=(d)=> d.stage==="Closed Lost" || d.stage==="Closed LTO";
+  const weeks=[];
+  for(let i=WEEKS-1;i>=0;i--){ const s=new Date(curMon); s.setDate(s.getDate()-7*i); const e=new Date(s); e.setDate(e.getDate()+7);
+    const eIncl=new Date(e); eIncl.setDate(eIncl.getDate()-1);
+    weeks.push({start:s,end:e,
+      label:s.toLocaleDateString(undefined,{month:'short',day:'numeric'})+' – '+eIncl.toLocaleDateString(undefined,{month:'short',day:'numeric'})}); }
+  weeks.forEach(w=>{ w.deals=DATA.deals.filter(d=>{ if(!isLost(d)) return false; const dt=parseDate(d.close_date); return dt&&dt>=w.start&&dt<w.end; })
+    .sort((a,b)=>num(b.amount)-num(a.amount)); w.amt=w.deals.reduce((s,d)=>s+num(d.amount),0); });
+  const total=weeks.reduce((s,w)=>s+w.deals.length,0), totAmt=weeks.reduce((s,w)=>s+w.amt,0);
+  document.getElementById('lostSub').textContent=`Last 5 weeks · ${total} deals · ${money(totAmt)}`;
+
+  let h='<div class="lost-board">';
+  weeks.forEach(w=>{
+    h+='<div class="lb-col"><div class="lb-head"><div class="lb-wk">'+w.label+'</div>'+
+       `<div class="lb-meta">${w.deals.length} deal${w.deals.length===1?'':'s'} · ${money(w.amt)}</div></div><div class="lb-cards">`;
+    if(!w.deals.length){ h+='<div class="lb-empty">No lost deals</div>'; }
+    w.deals.forEach(d=>{ const rs=reasonOf(d), col=STAGE_COLOR[d.stage];
+      h+=`<a class="lb-card" href="${CLARIFY(d.id)}" target="_blank" rel="noopener" style="border-left-color:${col}">`+
+        `<div class="lb-name" title="${esc(d.name||'')}">${esc(d.name||'(untitled deal)')}</div>`+
+        `<div class="lb-row"><span class="lb-amt">${money(num(d.amount))}</span>`+
+        `<span class="lb-stage" style="background:${col}22;color:${col}">${esc(d.stage)}</span></div>`+
+        `<div class="lb-owner">${esc(ownerName(d))}</div>`+
+        `<div class="lb-reason" title="${esc(rs)}">${esc(rs)}</div></a>`;
+    });
+    h+='</div></div>';
   });
-  h+='</tbody></table>';
+  h+='</div>';
   host.innerHTML=h;
 }
 
@@ -976,6 +983,11 @@ async function refresh(){
   try{
     const [deals,meetings,partners]=await Promise.all([
       fetchSheet("deals"),fetchSheet("meetings"),fetchSheet("partners")]);
+    // guard against a transient empty/rate-limited deals fetch wiping the dashboard
+    if(!deals.length && DATA.deals.length){
+      dot.classList.add('err'); st.textContent="Stale — deals fetch empty, retrying";
+      startCountdown(); return;
+    }
     DATA={deals,meetings,partners};
     partnerName={}; partners.forEach(p=>{if(p.id)partnerName[p.id]=p.name;});
     ownerIdName={}; deals.forEach(d=>{ const e=(d.owner_email||"").trim(), i=(d.owner_id||"").trim();
