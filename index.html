@@ -505,14 +505,10 @@ const wonView={ week:{mode:'total',metric:'amount',owner:'All'}, month:{mode:'to
 function parseDate(s){ s=(s||"").slice(0,10); if(!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
   const [y,m,dd]=s.split('-').map(Number); return new Date(y,m-1,dd); }
 function startOfWeek(d){ const x=new Date(d); x.setHours(0,0,0,0); const wd=(x.getDay()+6)%7; x.setDate(x.getDate()-wd); return x; }
-let userMap={};       // owner_id -> Name, from the sheet's `user` tab (authoritative)
-let ownerIdName={};   // owner_id -> email, learned from deals (fallback only)
+let userMap={};       // owner_id -> Name, from the sheet's `user` tab (sole source of truth)
 const ownerName=(d)=>{
   const id=(d.owner_id||"").trim();
-  if(id && userMap[id]) return userMap[id];                 // authoritative user table
-  if(d.owner_email && d.owner_email.trim()) return nameOf(d.owner_email);
-  if(id && ownerIdName[id]) return nameOf(ownerIdName[id]);
-  return "Unassigned";
+  return (id && userMap[id]) ? userMap[id] : "Unassigned";
 };
 function wonInRange(start,end){
   return DATA.deals.filter(d=>{ if(d.stage!==WON) return false; const dt=parseDate(d.close_date); return dt && dt>=start && dt<end; });
@@ -992,10 +988,8 @@ async function refresh(){
     }
     DATA={deals,meetings,partners};
     partnerName={}; partners.forEach(p=>{if(p.id)partnerName[p.id]=p.name;});
-    // owner_id -> Name from the `user` tab (authoritative). Keep prior map if fetch empty.
+    // owner_id -> Name from the `user` tab (sole source of truth). Keep prior map if fetch empty.
     if(users && users.length){ userMap={}; users.forEach(u=>{ const id=(u['User ID']||'').trim(); if(id) userMap[id]=(u['Name']||'').trim()||id; }); }
-    ownerIdName={}; deals.forEach(d=>{ const e=(d.owner_email||"").trim(), i=(d.owner_id||"").trim();
-      if(e && i && !ownerIdName[i]) ownerIdName[i]=e; });
     renderAll();
     dot.classList.remove('err'); st.textContent="Live";
     document.getElementById('updated').textContent="updated "+new Date().toLocaleTimeString();
