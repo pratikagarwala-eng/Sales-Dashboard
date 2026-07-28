@@ -916,7 +916,7 @@ function renderLostTable(){
   const host=document.getElementById('t_lost');
   const now=new Date(); now.setHours(0,0,0,0);
   const curMon=startOfWeek(now);
-  const reasonOf=(d)=> (d.closed_lost_reason||d.closed_lost_rationale||d.closed_detail||d.lost_deal_reason||"").trim() || "—";
+  const reasonOf=(d)=> (d.closed_lost_rationale||d.closed_lost_reason||d.closed_detail||d.lost_deal_reason||"").trim() || "—";
   const isLost=(d)=> d.stage==="Closed Lost" || d.stage==="Closed LTO";
   const weeks=[];
   for(let i=WEEKS-1;i>=0;i--){ const s=new Date(curMon); s.setDate(s.getDate()-7*i); const e=new Date(s); e.setDate(e.getDate()+7);
