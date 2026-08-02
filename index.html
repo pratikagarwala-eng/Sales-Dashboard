@@ -94,6 +94,8 @@
   .kpi .label{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;font-weight:600;}
   .kpi .val{font-size:24px;font-weight:700;margin-top:5px;letter-spacing:-.01em;}
   .kpi .sub{font-size:11.5px;color:var(--ink2);margin-top:2px;}
+  .kpi-click{cursor:pointer;}
+  .kpi-click:hover{border-color:var(--accent);}
 
   .section-label{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);
     margin:26px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--grid);}
@@ -105,6 +107,7 @@
   .canvas-wrap{position:relative;min-height:360px;}
   .grid2{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;}
   @media (max-width:900px){.grid2{grid-template-columns:1fr;}}
+  .trend-scroll{overflow-x:auto;}
 
   .filterbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px;}
   .filterbar .flabel{font-size:11.5px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin-right:2px;}
@@ -215,6 +218,20 @@
     <div class="kpis" id="kpis"></div>
   </div>
 
+  <div class="section-label">Closed Won trends</div>
+  <div class="card">
+    <div class="chead"><h3>Month on month &middot; all months</h3><span class="wonctl" data-kind="month"></span></div>
+    <div class="trend-scroll"><div class="canvas-wrap"><canvas id="c_wonMonth"></canvas></div></div>
+  </div>
+  <div class="card" style="margin-top:16px">
+    <div class="chead"><h3>Quarter on quarter &middot; fiscal (quarters start Feb)</h3><span class="wonctl" data-kind="quarter"></span></div>
+    <div class="trend-scroll"><div class="canvas-wrap"><canvas id="c_wonQuarter"></canvas></div></div>
+  </div>
+  <div class="card" style="margin-top:16px">
+    <div class="chead"><h3>Week on week &middot; last 5 weeks</h3><span class="wonctl" data-kind="week"></span></div>
+    <div class="canvas-wrap"><canvas id="c_wonWeek"></canvas></div>
+  </div>
+
   <div class="section-label">Pipeline by stage</div>
   <div class="card">
     <div class="chead">
@@ -229,18 +246,6 @@
     </div>
     <div class="canvas-wrap"><canvas id="c_pipeline"></canvas></div>
     <div class="summary" id="pipeSummary"></div>
-  </div>
-
-  <div class="section-label">Closed Won trends</div>
-  <div class="grid2">
-    <div class="card">
-      <div class="chead"><h3>Week on week &middot; last 5 weeks</h3><span class="wonctl" data-kind="week"></span></div>
-      <div class="canvas-wrap"><canvas id="c_wonWeek"></canvas></div>
-    </div>
-    <div class="card">
-      <div class="chead"><h3>Month on month &middot; last 4 months</h3><span class="wonctl" data-kind="month"></span></div>
-      <div class="canvas-wrap"><canvas id="c_wonMonth"></canvas></div>
-    </div>
   </div>
 
   <div class="section-label">Deals by owner, at each stage</div>
@@ -500,8 +505,9 @@ function closeModal(){ document.getElementById('overlay').classList.remove('open
 const WON_COLOR="#0ca30c", GROW_COLOR="#eb6834";
 const CATOWN=["#2a78d6","#1baf7a","#eda100","#008300","#4a3aa7","#e34948","#e87ba4","#eb6834","#898781"];
 const OWNER_COLOR={ "Sherry B":"#e87ba4", "Ayush Rathi":"#e34948" }; // explicit overrides
-const WEEKS=5, MONTHS=4;
-const wonView={ week:{mode:'total',metric:'amount',owner:'All'}, month:{mode:'total',metric:'amount',owner:'All'} };
+const WEEKS=5;
+const WON_CANVAS={ week:'c_wonWeek', month:'c_wonMonth', quarter:'c_wonQuarter' };
+const wonView={ week:{mode:'total',metric:'amount',owner:'All'}, month:{mode:'total',metric:'amount',owner:'All'}, quarter:{mode:'total',metric:'amount',owner:'All'} };
 function parseDate(s){ s=(s||"").slice(0,10); if(!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
   const [y,m,dd]=s.split('-').map(Number); return new Date(y,m-1,dd); }
 function startOfWeek(d){ const x=new Date(d); x.setHours(0,0,0,0); const wd=(x.getDay()+6)%7; x.setDate(x.getDate()-wd); return x; }
@@ -513,6 +519,16 @@ const ownerName=(d)=>{
 function wonInRange(start,end){
   return DATA.deals.filter(d=>{ if(d.stage!==WON) return false; const dt=parseDate(d.close_date); return dt && dt>=start && dt<end; });
 }
+/* fiscal quarter start (fiscal year begins Feb): quarter starts = Feb, May, Aug, Nov */
+function fqStart(d){
+  const y=d.getFullYear(), m=d.getMonth(); let sm, sy=y;
+  if(m>=10) sm=10; else if(m>=7) sm=7; else if(m>=4) sm=4; else if(m>=1) sm=1; else { sm=10; sy=y-1; }
+  return new Date(sy, sm, 1);
+}
+function wonMinDate(){
+  const ts=DATA.deals.filter(d=>d.stage===WON).map(d=>parseDate(d.close_date)).filter(Boolean).map(d=>d.getTime());
+  return ts.length ? new Date(Math.min(...ts)) : new Date();
+}
 function wonBuckets(kind){
   const now=new Date(); now.setHours(0,0,0,0);
   const buckets=[];
@@ -521,10 +537,21 @@ function wonBuckets(kind){
     for(let i=WEEKS-1;i>=0;i--){ const s=new Date(curMon); s.setDate(s.getDate()-7*i);
       const e=new Date(s); e.setDate(e.getDate()+7);
       buckets.push({start:s,end:e,label:s.toLocaleDateString(undefined,{month:'short',day:'numeric'})}); }
-  }else{
-    for(let i=MONTHS-1;i>=0;i--){ const s=new Date(now.getFullYear(), now.getMonth()-i, 1);
-      const e=new Date(s.getFullYear(), s.getMonth()+1, 1);
-      buckets.push({start:s,end:e,label:s.toLocaleDateString(undefined,{month:'short'})+" '"+String(s.getFullYear()).slice(2)}); }
+  }else if(kind==='quarter'){
+    const min=wonMinDate();
+    let s=fqStart(min); const last=fqStart(now);
+    while(s<=last){ const e=new Date(s.getFullYear(), s.getMonth()+3, 1);
+      const em=new Date(s.getFullYear(), s.getMonth()+2, 1);
+      buckets.push({start:new Date(s),end:e,
+        label:s.toLocaleDateString(undefined,{month:'short'})+'–'+em.toLocaleDateString(undefined,{month:'short'})+" '"+String(s.getFullYear()).slice(2)});
+      s=e; }
+  }else{ // month — all months from earliest won to current
+    const min=wonMinDate();
+    let s=new Date(min.getFullYear(), min.getMonth(), 1);
+    const last=new Date(now.getFullYear(), now.getMonth(), 1);
+    while(s<=last){ const e=new Date(s.getFullYear(), s.getMonth()+1, 1);
+      buckets.push({start:new Date(s),end:e,label:s.toLocaleDateString(undefined,{month:'short'})+" '"+String(s.getFullYear()).slice(2)});
+      s=e; }
   }
   buckets.forEach(b=>{ b.deals=wonInRange(b.start,b.end).sort((x,y)=>num(y.amount)-num(x.amount));
     b.count=b.deals.length; b.amount=b.deals.reduce((s,d)=>s+num(d.amount),0);
@@ -644,6 +671,13 @@ function renderWonTrend(canvasId, kind){
 
   const focus = view.mode==='owner' && view.owner && view.owner!=='All' && owners.includes(view.owner) ? view.owner : null;
 
+  // widen month/quarter charts so many buckets stay readable (parent scrolls horizontally)
+  const wrap=document.getElementById(canvasId).parentElement;
+  if(kind==='month' || kind==='quarter'){
+    const per = (view.mode==='owner' && !focus) ? Math.max(120, owners.length*24+44) : 92;
+    wrap.style.minWidth = Math.max(buckets.length*per, 640)+'px';
+  } else { wrap.style.minWidth=''; }
+
   if(view.mode==='total' || focus){
     // single series (all deals, or one owner) — bars + growth trendline
     const metric = focus ? view.metric : 'amount';
@@ -698,9 +732,10 @@ function syncOwnerSelect(kind, owners){
 }
 const renderWonWeek =()=>renderWonTrend('c_wonWeek','week');
 const renderWonMonth=()=>renderWonTrend('c_wonMonth','month');
+const renderWonQuarter=()=>renderWonTrend('c_wonQuarter','quarter');
 function buildWonControls(){
   document.querySelectorAll('.wonctl[data-kind]').forEach(host=>{
-    const kind=host.dataset.kind, v=wonView[kind], cid=kind==='week'?'c_wonWeek':'c_wonMonth';
+    const kind=host.dataset.kind, v=wonView[kind], cid=WON_CANVAS[kind];
     host.innerHTML=
       `<span class="toggle mode"><button data-mode="total">Total</button><button data-mode="owner">By owner</button></span>`+
       `<span class="toggle metric" style="margin-left:6px"><button data-metric="amount">$ Amount</button><button data-metric="count"># Count</button></span>`+
@@ -852,14 +887,17 @@ function renderKPIs(){
   });
 
   const items=[
-    {label:"Closed won",val:money(wonAmt),sub:wonR.length+" deals won"},
+    {label:"Closed won",val:money(wonAmt),sub:wonR.length+" deals won · click to view",click:"won"},
     {label:"Win rate",val:winRate.toFixed(0)+"%",sub:`${wonR.length} won vs. ${lostR.length} lost`},
     {label:"Avg won deal",val:money(avgWon),sub:"per closed-won"},
     {label:"Deals created",val:createdR.length.toLocaleString(),sub:"excl. Potential"},
     {label:"Discovery calls completed",val:discR.length.toLocaleString(),sub:"excl. scheduled & cancelled"},
   ];
   document.getElementById('kpis').innerHTML=items.map(k=>
-    `<div class="kpi"><div class="label">${k.label}</div><div class="val">${k.val}</div><div class="sub">${k.sub}</div></div>`).join('');
+    `<div class="kpi${k.click?' kpi-click':''}"${k.click?` data-kpi="${k.click}"`:''}><div class="label">${k.label}</div><div class="val">${k.val}</div><div class="sub">${k.sub}</div></div>`).join('');
+  const wonCard=document.querySelector('#kpis [data-kpi="won"]');
+  if(wonCard) wonCard.onclick=()=>{ const list=wonR.slice().sort((a,b)=>num(b.amount)-num(a.amount));
+    openDealsModal(`Closed Won · ${rangeLabelFor(perfRange)}`, `${list.length} deal${list.length===1?'':'s'} · ${money(wonAmt)}`, list); };
 }
 
 /* ============================ CREATED-IN-RANGE TABLE (owner × stage) ============================ */
@@ -953,8 +991,9 @@ function renderAll(){
   renderCreatedTable();
   renderLostTable();
   renderPipeline();
-  renderWonWeek();
   renderWonMonth();
+  renderWonQuarter();
+  renderWonWeek();
   renderAeIndia();
   renderPartner();
 }
