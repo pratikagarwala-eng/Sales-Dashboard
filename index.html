@@ -108,6 +108,8 @@
   .grid2{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;}
   @media (max-width:900px){.grid2{grid-template-columns:1fr;}}
   .trend-scroll{overflow-x:auto;}
+  .scopebar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:-6px 0 18px;}
+  .scopebar .flabel{font-size:11.5px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em;}
 
   .filterbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px;}
   .filterbar .flabel{font-size:11.5px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin-right:2px;}
@@ -209,6 +211,12 @@
     </div>
   </header>
 
+  <div class="scopebar">
+    <span class="flabel">StarFish deals</span>
+    <span class="toggle" id="scopeToggle"><button data-sf="all">Include</button><button data-sf="ex">Exclude</button></span>
+    <span class="hint" id="scopeHint"></span>
+  </div>
+
   <div class="kpi-open" id="kpiOpen"></div>
   <div class="statpanel">
     <div class="statpanel-head">
@@ -220,7 +228,7 @@
 
   <div class="section-label">Closed Won trends</div>
   <div class="card">
-    <div class="chead"><h3>Month on month &middot; all months</h3><span class="wonctl" data-kind="month"></span></div>
+    <div class="chead"><h3>Month on month</h3><span class="wonctl" data-kind="month"></span></div>
     <div class="trend-scroll"><div class="canvas-wrap"><canvas id="c_wonMonth"></canvas></div></div>
   </div>
   <div class="card" style="margin-top:16px">
@@ -373,6 +381,10 @@ const CLARIFY=(id)=>`https://app.clarify.ai/workspaces/sprouts-ai/objects/deal/r
 
 /* ============================ STATE ============================ */
 let DATA={deals:[],meetings:[],partners:[]};
+let rawDeals=[];                 // all fetched deals (before StarFish scope)
+let includeStarFish=true;        // global scope toggle
+const isStarFish=(d)=>/starfish/i.test(d.name||"");
+function applyDealScope(){ DATA.deals = includeStarFish ? rawDeals : rawDeals.filter(d=>!isStarFish(d)); }
 let partnerName={};
 let stageFilter=new Set(OPEN_STAGES);            // pipeline chart: open by default
 const tableFilters={                              // tables: open pipeline by default
@@ -507,7 +519,9 @@ const CATOWN=["#2a78d6","#1baf7a","#eda100","#008300","#4a3aa7","#e34948","#e87b
 const OWNER_COLOR={ "Sherry B":"#e87ba4", "Ayush Rathi":"#e34948" }; // explicit overrides
 const WEEKS=5;
 const WON_CANVAS={ week:'c_wonWeek', month:'c_wonMonth', quarter:'c_wonQuarter' };
-const wonView={ week:{mode:'total',metric:'amount',owner:'All'}, month:{mode:'total',metric:'amount',owner:'All'}, quarter:{mode:'total',metric:'amount',owner:'All'} };
+const wonView={ week:{mode:'total',metric:'amount',owner:'All'},
+  month:{mode:'total',metric:'amount',owner:'All',span:'year'},
+  quarter:{mode:'total',metric:'amount',owner:'All',span:'year'} };
 function parseDate(s){ s=(s||"").slice(0,10); if(!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
   const [y,m,dd]=s.split('-').map(Number); return new Date(y,m-1,dd); }
 function startOfWeek(d){ const x=new Date(d); x.setHours(0,0,0,0); const wd=(x.getDay()+6)%7; x.setDate(x.getDate()-wd); return x; }
@@ -538,17 +552,20 @@ function wonBuckets(kind){
       const e=new Date(s); e.setDate(e.getDate()+7);
       buckets.push({start:s,end:e,label:s.toLocaleDateString(undefined,{month:'short',day:'numeric'})}); }
   }else if(kind==='quarter'){
-    const min=wonMinDate();
-    let s=fqStart(min); const last=fqStart(now);
+    const span=(wonView.quarter&&wonView.quarter.span)||'all';
+    const last=fqStart(now);
+    let s = span==='year' ? new Date(now.getFullYear(),1,1) : fqStart(wonMinDate());
+    if(s>last) s=new Date(last);
     while(s<=last){ const e=new Date(s.getFullYear(), s.getMonth()+3, 1);
       const em=new Date(s.getFullYear(), s.getMonth()+2, 1);
       buckets.push({start:new Date(s),end:e,
         label:s.toLocaleDateString(undefined,{month:'short'})+'–'+em.toLocaleDateString(undefined,{month:'short'})+" '"+String(s.getFullYear()).slice(2)});
       s=e; }
-  }else{ // month — all months from earliest won to current
-    const min=wonMinDate();
-    let s=new Date(min.getFullYear(), min.getMonth(), 1);
+  }else{ // month
+    const span=(wonView.month&&wonView.month.span)||'all';
     const last=new Date(now.getFullYear(), now.getMonth(), 1);
+    let s = span==='year' ? new Date(now.getFullYear(),0,1) : (()=>{const m=wonMinDate();return new Date(m.getFullYear(),m.getMonth(),1);})();
+    if(s>last) s=new Date(last);
     while(s<=last){ const e=new Date(s.getFullYear(), s.getMonth()+1, 1);
       buckets.push({start:new Date(s),end:e,label:s.toLocaleDateString(undefined,{month:'short'})+" '"+String(s.getFullYear()).slice(2)});
       s=e; }
@@ -736,17 +753,21 @@ const renderWonQuarter=()=>renderWonTrend('c_wonQuarter','quarter');
 function buildWonControls(){
   document.querySelectorAll('.wonctl[data-kind]').forEach(host=>{
     const kind=host.dataset.kind, v=wonView[kind], cid=WON_CANVAS[kind];
-    host.innerHTML=
+    const spanCtl = (kind==='month'||kind==='quarter')
+      ? `<span class="toggle span" style="margin-right:6px"><button data-span="year">This year</button><button data-span="all">All time</button></span>` : '';
+    host.innerHTML= spanCtl+
       `<span class="toggle mode"><button data-mode="total">Total</button><button data-mode="owner">By owner</button></span>`+
       `<span class="toggle metric" style="margin-left:6px"><button data-metric="amount">$ Amount</button><button data-metric="count"># Count</button></span>`+
       `<select class="ownersel" style="margin-left:6px;display:none"></select>`;
     const upd=()=>{
+      host.querySelectorAll('[data-span]').forEach(b=>b.classList.toggle('active',b.dataset.span===v.span));
       host.querySelectorAll('[data-mode]').forEach(b=>b.classList.toggle('active',b.dataset.mode===v.mode));
       host.querySelectorAll('[data-metric]').forEach(b=>b.classList.toggle('active',b.dataset.metric===v.metric));
       host.querySelector('.metric').style.display = v.mode==='owner'?'inline-flex':'none';
       host.querySelector('.ownersel').style.display = v.mode==='owner'?'inline-block':'none';
     };
     upd();
+    host.querySelectorAll('[data-span]').forEach(b=>b.onclick=()=>{ v.span=b.dataset.span; upd(); renderWonTrend(cid,kind); });
     host.querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>{ v.mode=b.dataset.mode; upd(); renderWonTrend(cid,kind); });
     host.querySelectorAll('[data-metric]').forEach(b=>b.onclick=()=>{ v.metric=b.dataset.metric; upd(); renderWonTrend(cid,kind); });
     host.querySelector('.ownersel').onchange=(e)=>{ v.owner=e.target.value; renderWonTrend(cid,kind); };
@@ -1021,15 +1042,15 @@ async function refresh(){
     const [deals,meetings,partners,users]=await Promise.all([
       fetchSheet("deals"),fetchSheet("meetings"),fetchSheet("partners"),fetchSheet("user")]);
     // guard against a transient empty/rate-limited deals fetch wiping the dashboard
-    if(!deals.length && DATA.deals.length){
+    if(!deals.length && rawDeals.length){
       dot.classList.add('err'); st.textContent="Stale — deals fetch empty, retrying";
       startCountdown(); return;
     }
-    DATA={deals,meetings,partners};
+    rawDeals=deals; DATA={deals,meetings,partners}; applyDealScope();
     partnerName={}; partners.forEach(p=>{if(p.id)partnerName[p.id]=p.name;});
     // owner_id -> Name from the `user` tab (sole source of truth). Keep prior map if fetch empty.
     if(users && users.length){ userMap={}; users.forEach(u=>{ const id=(u['User ID']||'').trim(); if(id) userMap[id]=(u['Name']||'').trim()||id; }); }
-    renderAll();
+    updateScopeHint(); renderAll();
     dot.classList.remove('err'); st.textContent="Live";
     document.getElementById('updated').textContent="updated "+new Date().toLocaleTimeString();
   }catch(e){ dot.classList.add('err'); st.textContent="Fetch error — retrying"; console.error(e); }
@@ -1037,10 +1058,22 @@ async function refresh(){
 }
 
 /* ============================ INIT ============================ */
+function updateScopeHint(){
+  const n=rawDeals.filter(isStarFish).length;
+  const el=document.getElementById('scopeHint'); if(!el) return;
+  el.textContent = includeStarFish ? `${n.toLocaleString()} StarFish deals included` : `${n.toLocaleString()} StarFish deals hidden`;
+}
+function buildScopeToggle(){
+  const host=document.getElementById('scopeToggle');
+  const upd=()=>host.querySelectorAll('button').forEach(b=>b.classList.toggle('active',(b.dataset.sf==='all')===includeStarFish));
+  upd();
+  host.querySelectorAll('button').forEach(b=>b.onclick=()=>{ includeStarFish=(b.dataset.sf==='all'); upd(); applyDealScope(); updateScopeHint(); renderAll(); });
+}
 renderChipBar(document.getElementById('fb_pipeline'), stageFilter, renderPipeline);
 renderChipBar(document.getElementById('fb_aeIndia'), tableFilters.aeIndia, renderAeIndia);
 renderChipBar(document.getElementById('fb_partner'), tableFilters.partner, renderPartner);
 buildWonControls();
+buildScopeToggle();
 renderRangeBar(document.getElementById('rangeBar'), perfRange, renderKPIs);
 renderRangeBar(document.getElementById('createdRangeBar'), createdRange, renderCreatedTable);
 refresh();
