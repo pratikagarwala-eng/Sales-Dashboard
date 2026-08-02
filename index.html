@@ -248,6 +248,12 @@
     <div class="canvas-wrap"><canvas id="c_wonWeek"></canvas></div>
   </div>
 
+  <div class="section-label">Revenue by source</div>
+  <div class="card">
+    <div class="chead"><h3>Closed Won by source &middot; this year</h3><span class="hint" id="revSrcSub">Each bar shows won amount &amp; deal count</span></div>
+    <div class="canvas-wrap"><canvas id="c_revSource"></canvas></div>
+  </div>
+
   <div class="section-label">Pipeline by stage</div>
   <div class="card">
     <div class="chead">
@@ -837,6 +843,40 @@ function renderPipeline(){
     `<div>Total amount<b>${money(totAmt)}</b></div>`;
 }
 
+/* ============================ REVENUE BY SOURCE (Closed Won, this year) ============================ */
+let revSrcChart=null;
+function renderRevenueBySource(){
+  const t=chartTheme(), YR=new Date().getFullYear();
+  const won=DATA.deals.filter(d=>{ if(d.stage!==WON) return false; const dt=parseDate(d.close_date); return dt && dt.getFullYear()===YR; });
+  const g={};
+  won.forEach(d=>{ const s=(d.source||'').trim()||'(No source)';
+    (g[s]=g[s]||{amount:0,count:0,deals:[]}); g[s].amount+=num(d.amount); g[s].count++; g[s].deals.push(d); });
+  const srcs=Object.keys(g).sort((a,b)=>g[b].amount-g[a].amount);
+  const amounts=srcs.map(s=>g[s].amount), counts=srcs.map(s=>g[s].count);
+  const totAmt=amounts.reduce((a,b)=>a+b,0), totCnt=counts.reduce((a,b)=>a+b,0);
+  document.getElementById('revSrcSub').textContent=`${YR} · ${totCnt} won deals · ${money(totAmt)} · each bar: amount & count`;
+  if(revSrcChart) revSrcChart.destroy();
+  if(!srcs.length){ return; }
+  revSrcChart=new Chart(document.getElementById('c_revSource'),{type:'bar',
+    data:{labels:srcs,datasets:[{data:amounts,backgroundColor:WON_COLOR,borderRadius:4,borderSkipped:false,maxBarThickness:34}]},
+    options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',animation:{duration:300},
+      layout:{padding:{right:160}},
+      onClick:(e,els)=>{ if(!els.length) return; const s=srcs[els[0].index];
+        const list=g[s].deals.slice().sort((a,b)=>num(b.amount)-num(a.amount));
+        openDealsModal(`Closed Won · ${s} · ${YR}`, `${list.length} deal${list.length===1?'':'s'} · ${money(g[s].amount)}`, list); },
+      onHover:(e,els)=>{ e.native.target.style.cursor = els.length?'pointer':'default'; },
+      plugins:{legend:{display:false},
+        tooltip:{callbacks:{label:(ctx)=>{const i=ctx.dataIndex;return "  "+counts[i].toLocaleString()+" deals   ·   "+money(amounts[i]);}}}},
+      scales:{
+        x:{grid:{color:t.grid,drawBorder:false},ticks:{color:t.muted,font:{size:11},callback:(v)=>money(v)},
+          title:{display:true,text:'Won amount',color:t.muted,font:{size:11}}},
+        y:{grid:{color:'transparent',drawBorder:false},ticks:{color:t.ink2,font:{size:12}}}
+      }},
+    plugins:[barBoth]});
+  revSrcChart.$counts=counts; revSrcChart.$amounts=amounts;
+  revSrcChart.update();
+}
+
 /* ============================ KPIs (time-range driven) ============================ */
 const RANGES=[['thisWeek','This week'],['lastWeek','Last week'],['thisMonth','This month'],
   ['lastMonth','Last month'],['thisQuarter','This quarter'],['lastQuarter','Last quarter'],['thisYear','This year']];
@@ -1023,6 +1063,7 @@ function renderAll(){
   renderWonMonth();
   renderWonQuarter();
   renderWonWeek();
+  renderRevenueBySource();
   renderAeIndia();
   renderPartner();
 }
