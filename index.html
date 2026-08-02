@@ -64,6 +64,15 @@
   .rb-date{border:0;background:transparent;color:var(--ink);font-size:12px;font-weight:600;font-family:inherit;
     padding:3px 2px;cursor:pointer;color-scheme:light dark;}
   .rb-sep{color:var(--muted);font-size:12px;}
+  .toggle{display:inline-flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;background:var(--surface);vertical-align:middle;}
+  .toggle button{border:0;background:transparent;color:var(--muted);font-size:11.5px;font-weight:600;padding:6px 12px;cursor:pointer;line-height:1;transition:background .12s,color .12s;}
+  .toggle button+button{border-left:1px solid var(--border);}
+  .toggle button:not(.active):hover{color:var(--accent);}
+  .toggle button.active{background:var(--accent);color:#fff;}
+  .checkctl{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;color:var(--ink);cursor:pointer;user-select:none;
+    border:1px solid var(--border);border-radius:8px;padding:6px 12px;background:var(--surface);}
+  .checkctl:hover{border-color:var(--accent);}
+  .checkctl input{width:15px;height:15px;accent-color:var(--accent);cursor:pointer;margin:0;}
 
   /* pipeline funnel */
   .fn-scroll{overflow-x:auto;}
@@ -212,8 +221,7 @@
   </header>
 
   <div class="scopebar">
-    <span class="flabel">StarFish deals</span>
-    <span class="toggle" id="scopeToggle"><button data-sf="all">Include</button><button data-sf="ex">Exclude</button></span>
+    <label class="checkctl"><input type="checkbox" id="scopeChk" checked> Include StarFish deals</label>
     <span class="hint" id="scopeHint"></span>
   </div>
 
@@ -707,7 +715,7 @@ function renderWonTrend(canvasId, kind){
       labels, vals, counts, amounts, metric, barColor: focus?colorOf(focus):WON_COLOR,
       periodDeals: src.map(s=>s.deals),
       periodLabels: buckets.map(b=>`Closed Won · ${who}${periodLabel(b)}`),
-      showGrowth: !focus   // trendline only in Total view, not in by-owner comparison
+      showGrowth: false   // growth trendline removed per request
     });
   } else {
     // all owners — grouped bars, click legend or use dropdown to focus
@@ -1061,13 +1069,14 @@ async function refresh(){
 function updateScopeHint(){
   const n=rawDeals.filter(isStarFish).length;
   const el=document.getElementById('scopeHint'); if(!el) return;
-  el.textContent = includeStarFish ? `${n.toLocaleString()} StarFish deals included` : `${n.toLocaleString()} StarFish deals hidden`;
+  el.textContent = includeStarFish
+    ? `On · ${n.toLocaleString()} StarFish deals shown (${DATA.deals.length.toLocaleString()} total)`
+    : `Off · ${n.toLocaleString()} StarFish deals hidden (${DATA.deals.length.toLocaleString()} shown)`;
 }
 function buildScopeToggle(){
-  const host=document.getElementById('scopeToggle');
-  const upd=()=>host.querySelectorAll('button').forEach(b=>b.classList.toggle('active',(b.dataset.sf==='all')===includeStarFish));
-  upd();
-  host.querySelectorAll('button').forEach(b=>b.onclick=()=>{ includeStarFish=(b.dataset.sf==='all'); upd(); applyDealScope(); updateScopeHint(); renderAll(); });
+  const chk=document.getElementById('scopeChk');
+  chk.checked=includeStarFish;
+  chk.onchange=()=>{ includeStarFish=chk.checked; applyDealScope(); updateScopeHint(); renderAll(); };
 }
 renderChipBar(document.getElementById('fb_pipeline'), stageFilter, renderPipeline);
 renderChipBar(document.getElementById('fb_aeIndia'), tableFilters.aeIndia, renderAeIndia);
