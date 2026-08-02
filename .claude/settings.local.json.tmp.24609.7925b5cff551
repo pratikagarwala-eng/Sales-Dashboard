@@ -1,0 +1,43 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git mv *)",
+      "Bash(git add *)",
+      "Bash(git commit -q -m 'fix\\(vercel\\): serve static files at root via @vercel/static builds *)",
+      "Bash(git push *)",
+      "Bash(git commit -q -m 'Show Partner column instead of Next activity in deal drill-down *)",
+      "Bash(curl -sL 'https://docs.google.com/spreadsheets/d/__TRACKED_VAR__/gviz/tq?tqx=out:csv&sheet=deals' -o deals.csv)",
+      "Bash(python3)",
+      "Bash(curl -sL 'https://docs.google.com/spreadsheets/d/__TRACKED_VAR__/gviz/tq?tqx=out:csv&sheet=meetings' -o meetings.csv)",
+      "Bash(git commit -q -m 'Add week-on-week and month-on-month Closed Won trend charts *)",
+      "Bash(git commit -q -m 'Scope KPI cards to this year; add discovery-calls KPI *)",
+      "Bash(git commit -q -m 'WoW to 5 weeks; add by-owner comparison mode; base owner-table on Owner *)",
+      "Bash(git commit -q -m 'Redesign by-owner comparison: grouped bars + owner focus + trendline *)",
+      "Bash(git commit -q -m 'Drop growth trendline in by-owner comparison \\(week & month\\) *)",
+      "Bash(git commit -q -m 'Clarify grouped comparison: alternating per-period bands + wider gaps *)",
+      "Bash(git commit -q -m 'Add drill-down to Deals by stage bars *)",
+      "Bash(curl -sL -o /dev/null -w \"%{http_code}\\\\n\" \"http://127.0.0.1:8777/\")",
+      "Bash(git commit -q -m 'Add Sales pipeline funnel \\(converted vs deals, count & amount, Closed Won\\) *)",
+      "Bash(git commit -q -m 'Add custom date-range calendar to Performance; label comparison bars *)",
+      "Bash(git commit -q -m 'Show owner name on short comparison bars too \\(label above the bar\\) *)",
+      "Bash(git commit -q -m 'Owner color overrides: Sherry pink, Ayush red *)",
+      "Bash(git commit -q -m 'Add '\\\\''deals created in range by owner x stage'\\\\'' table *)",
+      "Bash(python3 -)",
+      "Bash(git commit -q -m 'Give created-deals table its own date range \\(quick filters + calendar\\) *)",
+      "Bash(git commit -q -m 'Created-deals table: move Total to the first row *)",
+      "Bash(git commit -q -m 'Add Closed Lost/LTO \\(last 5 weeks\\) table with lost reason *)",
+      "Bash(git commit -q -m 'Closed Lost/LTO as a weekly card board; guard empty deals fetch *)",
+      "Bash(curl -sL -o /dev/null -w \"%{http_code}\" \"http://127.0.0.1:8777/\")",
+      "Bash(python3 serve.py)",
+      "Bash(git commit -q -m 'Resolve deal owner via the sheet'\\\\''s user table \\(owner_id -> name\\) *)",
+      "Bash(git commit -q -m 'Owner resolved solely from user table \\(drop email fallback\\) *)",
+      "Bash(grep -n 'id=\"kpis\"\\\\|</div>\\\\s*$\\\\|Pipeline by stage\\\\|Closed Won trends\\\\|c_wonWeek\\\\|c_wonMonth\\\\|statpanel' index.html)",
+      "Bash(git commit -q -m 'Trends: all-months MoM + fiscal QoQ \\(Feb start\\) at top; Closed-won KPI drilldown *)",
+      "Bash(git commit -q -m 'Add global StarFish include/exclude filter; This year/All time on MoM & QoQ *)",
+      "Bash(awk '/<style>/,/<\\\\/style>/' index.html)",
+      "Bash(git commit -q -m 'Fix toggle UX \\(add missing .toggle styling\\); remove growth trendlines *)",
+      "Bash(git commit -q -m 'Add Revenue by source chart \\(Closed Won this year, amount + count\\) *)",
+      "Bash(git commit -q -m 'Reorder sections; drop semantic green/red palette *)"
+    ]
+  }
+}

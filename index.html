@@ -40,9 +40,9 @@
   .title h1{margin:0;font-size:22px;font-weight:700;letter-spacing:-.01em;}
   .title p{margin:2px 0 0;color:var(--ink2);font-size:12.5px;}
   .status{display:flex;align-items:center;gap:14px;flex-wrap:wrap;font-size:12.5px;color:var(--ink2);}
-  .dot{width:8px;height:8px;border-radius:50%;background:var(--good);display:inline-block;animation:pulse 2s infinite;}
-  .dot.err{background:var(--crit);animation:none;}
-  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(12,163,12,.45)}70%{box-shadow:0 0 0 7px rgba(12,163,12,0)}100%{box-shadow:0 0 0 0 rgba(12,163,12,0)}}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--accent);display:inline-block;animation:pulse 2s infinite;}
+  .dot.err{background:#c98a2b;animation:none;}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(42,120,214,.45)}70%{box-shadow:0 0 0 7px rgba(42,120,214,0)}100%{box-shadow:0 0 0 0 rgba(42,120,214,0)}}
   .btn{border:1px solid var(--border);background:var(--surface);color:var(--ink);
     border-radius:8px;padding:6px 12px;font-size:12.5px;cursor:pointer;font-weight:600;}
   .btn:hover{border-color:var(--accent);color:var(--accent);}
@@ -234,26 +234,6 @@
     <div class="kpis" id="kpis"></div>
   </div>
 
-  <div class="section-label">Closed Won trends</div>
-  <div class="card">
-    <div class="chead"><h3>Month on month</h3><span class="wonctl" data-kind="month"></span></div>
-    <div class="trend-scroll"><div class="canvas-wrap"><canvas id="c_wonMonth"></canvas></div></div>
-  </div>
-  <div class="card" style="margin-top:16px">
-    <div class="chead"><h3>Quarter on quarter &middot; fiscal (quarters start Feb)</h3><span class="wonctl" data-kind="quarter"></span></div>
-    <div class="trend-scroll"><div class="canvas-wrap"><canvas id="c_wonQuarter"></canvas></div></div>
-  </div>
-  <div class="card" style="margin-top:16px">
-    <div class="chead"><h3>Week on week &middot; last 5 weeks</h3><span class="wonctl" data-kind="week"></span></div>
-    <div class="canvas-wrap"><canvas id="c_wonWeek"></canvas></div>
-  </div>
-
-  <div class="section-label">Revenue by source</div>
-  <div class="card">
-    <div class="chead"><h3>Closed Won by source &middot; this year</h3><span class="hint" id="revSrcSub">Each bar shows won amount &amp; deal count</span></div>
-    <div class="canvas-wrap"><canvas id="c_revSource"></canvas></div>
-  </div>
-
   <div class="section-label">Pipeline by stage</div>
   <div class="card">
     <div class="chead">
@@ -268,6 +248,26 @@
     </div>
     <div class="canvas-wrap"><canvas id="c_pipeline"></canvas></div>
     <div class="summary" id="pipeSummary"></div>
+  </div>
+
+  <div class="section-label">Closed Won trends</div>
+  <div class="card">
+    <div class="chead"><h3>Quarter on quarter &middot; fiscal (quarters start Feb)</h3><span class="wonctl" data-kind="quarter"></span></div>
+    <div class="trend-scroll"><div class="canvas-wrap"><canvas id="c_wonQuarter"></canvas></div></div>
+  </div>
+  <div class="card" style="margin-top:16px">
+    <div class="chead"><h3>Month on month</h3><span class="wonctl" data-kind="month"></span></div>
+    <div class="trend-scroll"><div class="canvas-wrap"><canvas id="c_wonMonth"></canvas></div></div>
+  </div>
+  <div class="card" style="margin-top:16px">
+    <div class="chead"><h3>Week on week &middot; last 5 weeks</h3><span class="wonctl" data-kind="week"></span></div>
+    <div class="canvas-wrap"><canvas id="c_wonWeek"></canvas></div>
+  </div>
+
+  <div class="section-label">Revenue by source</div>
+  <div class="card">
+    <div class="chead"><h3>Closed Won by source &middot; this year</h3><span class="hint" id="revSrcSub">Each bar shows won amount &amp; deal count</span></div>
+    <div class="canvas-wrap"><canvas id="c_revSource"></canvas></div>
   </div>
 
   <div class="section-label">Deals by owner, at each stage</div>
@@ -335,8 +335,8 @@ const STAGE_ORDER = [
 const STAGE_COLOR = {
   "0. Potential":"#86b6ef","1. Interest Generation":"#5598e7","2. Demo":"#3987e5",
   "3. Trial":"#2a78d6","4. Proposal":"#256abf","5. Negotiation":"#1c5cab",
-  "6. Contracts":"#184f95","7. POC":"#104281","8. Closed Won":"#0ca30c",
-  "Closed LTO":"#898781","Closed Lost":"#d03b3b","Churned":"#eb6834"
+  "6. Contracts":"#184f95","7. POC":"#104281","8. Closed Won":"#6741d9",
+  "Closed LTO":"#898781","Closed Lost":"#5c6270","Churned":"#b08540"
 };
 const OPEN_STAGES = ["1. Interest Generation","2. Demo","3. Trial","4. Proposal",
   "5. Negotiation","6. Contracts","7. POC"];
@@ -528,7 +528,7 @@ function openCellModal(tbl,row,stage){
 function closeModal(){ document.getElementById('overlay').classList.remove('open'); }
 
 /* ============================ CLOSED-WON TRENDS ============================ */
-const WON_COLOR="#0ca30c", GROW_COLOR="#eb6834";
+const WON_COLOR="#6741d9", GROW_COLOR="#eb6834";
 const CATOWN=["#2a78d6","#1baf7a","#eda100","#008300","#4a3aa7","#e34948","#e87ba4","#eb6834","#898781"];
 const OWNER_COLOR={ "Sherry B":"#e87ba4", "Ayush Rathi":"#e34948" }; // explicit overrides
 const WEEKS=5;
