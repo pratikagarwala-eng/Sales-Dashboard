@@ -325,18 +325,12 @@
       <div class="statpanel-head"><span class="statpanel-title">Calls in range</span><div class="rangebar" id="presalesRangeBar"></div></div>
       <div class="kpis" id="psKpis"></div>
     </div>
-    <div class="grid2">
-      <div class="card">
-        <div class="chead"><h3>Calls by status</h3><span class="hint" id="psStatusSub"></span></div>
-        <div class="canvas-wrap"><canvas id="c_psStatus"></canvas></div>
-      </div>
-      <div class="card">
-        <div class="chead"><h3>Completed calls by outcome</h3><span class="hint" id="psOutcomeSub"></span></div>
-        <div class="canvas-wrap"><canvas id="c_psOutcome"></canvas></div>
-      </div>
+    <div class="card">
+      <div class="chead"><h3>Completed discovery calls by outcome</h3><span class="hint" id="psOutcomeSub"></span></div>
+      <div class="canvas-wrap"><canvas id="c_psOutcome"></canvas></div>
     </div>
 
-    <div class="section-label">Upcoming meetings</div>
+    <div class="section-label">Upcoming discovery calls</div>
     <div class="grid2">
       <div class="card">
         <div class="chead"><h3>Next 5 weeks (incl. this)</h3><span class="hint" id="psWkSub"></span></div>
@@ -1142,7 +1136,8 @@ const presalesRange={range:'thisYear',customStart:null,customEnd:null};
 const CALL_STATUS_COLOR={ Converted:'#0ca30c', DQ:'#5c6270', Hold:'#e8933a', LTO:'#94a3b8',
   Scheduled:'#2a78d6', Cancelled:'#b7b7b7', Demo:'#1baf7a', 'Sync-up':'#4a3aa7',
   Solutioning:'#8ab52f', Closing:'#184f95', Discovery:'#86b6ef' };
-const CALL_COMPLETED_EXCL=new Set(['Scheduled','Cancelled']);
+const CALL_OUTCOMES=['Converted','DQ','Hold','LTO'];   // completed discovery outcomes
+const isDiscovery=(m)=>/discovery/i.test(((m.type||'')+' '+(m.status_2||'')));
 function meetingStatus(m){
   if((m.canceled_at||'').trim()) return 'Cancelled';
   const src=((m.status_2||'').trim() || (m.type||'').trim()).toLowerCase();
@@ -1203,16 +1198,18 @@ function renderPresales(){
   const r=rangeOf(presalesRange);
   const st=(m)=>meetingStatus(m);
   const inR=(m)=>{ const dt=parseDate(m.start); return dt && dt>=r.start && dt<r.end; };
-  const inRange=DATA.meetings.filter(m=>st(m) && inR(m));
+  // Baseline: discovery-type calls only
+  const disc=DATA.meetings.filter(isDiscovery);
+  const inRange=disc.filter(m=>st(m) && inR(m));
   const counts={}; inRange.forEach(m=>{ const s=st(m); counts[s]=(counts[s]||0)+1; });
-  const completed=inRange.filter(m=>!CALL_COMPLETED_EXCL.has(st(m)));
+  const completed=inRange.filter(m=>CALL_OUTCOMES.includes(st(m)));
   const converted=completed.filter(m=>st(m)==='Converted').length;
   const total=inRange.length, comp=completed.length, sched=counts['Scheduled']||0, canc=counts['Cancelled']||0;
   const convRate=comp?Math.round(converted/comp*100):0;
 
   const items=[
-    {label:'Total calls',val:total.toLocaleString(),sub:'with a status, in range'},
-    {label:'Completed',val:comp.toLocaleString(),sub:'excl. scheduled & cancelled'},
+    {label:'Discovery calls',val:total.toLocaleString(),sub:'in range'},
+    {label:'Completed',val:comp.toLocaleString(),sub:'with an outcome'},
     {label:'Conversion rate',val:convRate+'%',sub:`${converted} converted of ${comp}`},
     {label:'Scheduled',val:sched.toLocaleString(),sub:'upcoming (in range)'},
     {label:'Cancelled',val:canc.toLocaleString(),sub:'in range'},
@@ -1220,25 +1217,10 @@ function renderPresales(){
   document.getElementById('psKpis').innerHTML=items.map(k=>
     `<div class="kpi"><div class="label">${k.label}</div><div class="val">${k.val}</div><div class="sub">${k.sub}</div></div>`).join('');
 
-  // Calls by status (all statuses, in range)
-  const statusOrder=['Scheduled','Converted','DQ','Hold','LTO','Demo','Sync-up','Solutioning','Closing','Cancelled'].filter(s=>counts[s]);
-  document.getElementById('psStatusSub').textContent=`${rangeLabelFor(presalesRange)} · ${total} calls`;
-  psDestroy('c_psStatus');
-  psCharts['c_psStatus']=new Chart(document.getElementById('c_psStatus'),{type:'bar',
-    data:{labels:statusOrder,datasets:[{data:statusOrder.map(s=>counts[s]),backgroundColor:statusOrder.map(s=>CALL_STATUS_COLOR[s]||'#888'),borderRadius:4,borderSkipped:false,maxBarThickness:46}]},
-    options:{responsive:true,maintainAspectRatio:false,animation:{duration:300},layout:{padding:{top:18}},
-      onClick:(e,els)=>{ if(!els.length) return; const s=statusOrder[els[0].index]; const l=inRange.filter(m=>st(m)===s);
-        openMeetingsModal(`${s} calls · ${rangeLabelFor(presalesRange)}`, `${l.length} meetings`, l); },
-      onHover:(e,els)=>{ e.native.target.style.cursor=els.length?'pointer':'default'; },
-      plugins:{legend:{display:false},tooltip:{callbacks:{label:(c)=>c.parsed.y+' calls'}}},
-      scales:{x:{grid:{color:'transparent',drawBorder:false},ticks:{color:t.ink2,font:{size:11}}},
-        y:{beginAtZero:true,grid:{color:t.grid,drawBorder:false},ticks:{color:t.muted,font:{size:11}}}}},
-    plugins:[countTopLabels]});
-
   // Completed by outcome (# and %)
   const outCounts={}; completed.forEach(m=>{ const s=st(m); outCounts[s]=(outCounts[s]||0)+1; });
   const outs=Object.keys(outCounts).sort((a,b)=>outCounts[b]-outCounts[a]);
-  document.getElementById('psOutcomeSub').textContent=`${comp} completed · share of completed`;
+  document.getElementById('psOutcomeSub').textContent=`${rangeLabelFor(presalesRange)} · ${comp} completed · share of completed`;
   psDestroy('c_psOutcome');
   const oc=new Chart(document.getElementById('c_psOutcome'),{type:'bar',
     data:{labels:outs,datasets:[{data:outs.map(s=>outCounts[s]),backgroundColor:outs.map(s=>CALL_STATUS_COLOR[s]||'#888'),borderRadius:4,borderSkipped:false,maxBarThickness:36}]},
@@ -1253,9 +1235,9 @@ function renderPresales(){
   oc.$counts=outs.map(s=>outCounts[s]); oc.$total=comp; oc.update();
   psCharts['c_psOutcome']=oc;
 
-  // Upcoming — next 5 weeks & next 3 months (future, not cancelled)
+  // Upcoming discovery calls — next 5 weeks & next 3 months (future, not cancelled)
   const now=new Date(); now.setHours(0,0,0,0);
-  const notCanc=DATA.meetings.filter(m=>!(m.canceled_at||'').trim());
+  const notCanc=disc.filter(m=>!(m.canceled_at||'').trim());
   const mon=startOfWeek(now), wLabels=[], wCounts=[], wDeals=[];
   for(let i=0;i<5;i++){ const s=new Date(mon); s.setDate(s.getDate()+7*i); const e=new Date(s); e.setDate(e.getDate()+7);
     const lo=i===0?now:s; const dl=notCanc.filter(m=>{const dt=parseDate(m.start);return dt&&dt>=lo&&dt<e;});
