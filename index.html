@@ -39,6 +39,10 @@
   header.top{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:20px;}
   .title h1{margin:0;font-size:22px;font-weight:700;letter-spacing:-.01em;}
   .title p{margin:2px 0 0;color:var(--ink2);font-size:12.5px;}
+  .tabs{display:inline-flex;gap:4px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:3px;}
+  .tab{border:0;background:transparent;color:var(--ink2);font-size:15px;font-weight:700;padding:7px 16px;border-radius:8px;cursor:pointer;letter-spacing:-.01em;}
+  .tab:hover:not(.active){color:var(--accent);}
+  .tab.active{background:var(--accent);color:#fff;}
   .status{display:flex;align-items:center;gap:14px;flex-wrap:wrap;font-size:12.5px;color:var(--ink2);}
   .dot{width:8px;height:8px;border-radius:50%;background:var(--accent);display:inline-block;animation:pulse 2s infinite;}
   .dot.err{background:#c98a2b;animation:none;}
@@ -209,8 +213,11 @@
 <div class="wrap">
   <header class="top">
     <div class="title">
-      <h1>Sales Dashboard</h1>
-      <p>Live from Google Sheets &middot; deals, meetings &amp; partners</p>
+      <div class="tabs">
+        <button class="tab active" data-view="sales">Sales Dashboard</button>
+        <button class="tab" data-view="presales">Pre-Sales Dashboard</button>
+      </div>
+      <p id="viewSub">Live from Google Sheets &middot; deals, meetings &amp; partners</p>
     </div>
     <div class="status">
       <span><span class="dot" id="dot"></span> <span id="statusText">Loading…</span></span>
@@ -220,6 +227,7 @@
     </div>
   </header>
 
+  <div id="view-sales">
   <div class="scopebar">
     <label class="checkctl"><input type="checkbox" id="scopeChk"> Include StarFish deals</label>
     <span class="hint" id="scopeHint"></span>
@@ -309,6 +317,37 @@
     <div class="chead"><h3>Lost &amp; LTO deals &middot; by week</h3><span class="hint" id="lostSub"></span></div>
     <div id="t_lost"></div>
   </div>
+  </div><!-- /view-sales -->
+
+  <div id="view-presales" style="display:none">
+    <div class="section-label">Discovery calls &mdash; outcomes</div>
+    <div class="statpanel">
+      <div class="statpanel-head"><span class="statpanel-title">Calls in range</span><div class="rangebar" id="presalesRangeBar"></div></div>
+      <div class="kpis" id="psKpis"></div>
+    </div>
+    <div class="grid2">
+      <div class="card">
+        <div class="chead"><h3>Calls by status</h3><span class="hint" id="psStatusSub"></span></div>
+        <div class="canvas-wrap"><canvas id="c_psStatus"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="chead"><h3>Completed calls by outcome</h3><span class="hint" id="psOutcomeSub"></span></div>
+        <div class="canvas-wrap"><canvas id="c_psOutcome"></canvas></div>
+      </div>
+    </div>
+
+    <div class="section-label">Upcoming meetings</div>
+    <div class="grid2">
+      <div class="card">
+        <div class="chead"><h3>Next 5 weeks (incl. this)</h3><span class="hint" id="psWkSub"></span></div>
+        <div class="canvas-wrap"><canvas id="c_psUpWeek"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="chead"><h3>Next 3 months (incl. this)</h3><span class="hint" id="psMoSub"></span></div>
+        <div class="canvas-wrap"><canvas id="c_psUpMonth"></canvas></div>
+      </div>
+    </div>
+  </div><!-- /view-presales -->
 
   <footer>
     Auto-refreshes every 60&nbsp;seconds from the source
@@ -1098,6 +1137,171 @@ function renderLostTable(){
   host.innerHTML=h;
 }
 
+/* ============================ PRE-SALES (meetings) ============================ */
+const presalesRange={range:'thisYear',customStart:null,customEnd:null};
+const CALL_STATUS_COLOR={ Converted:'#0ca30c', DQ:'#5c6270', Hold:'#e8933a', LTO:'#94a3b8',
+  Scheduled:'#2a78d6', Cancelled:'#b7b7b7', Demo:'#1baf7a', 'Sync-up':'#4a3aa7',
+  Solutioning:'#8ab52f', Closing:'#184f95', Discovery:'#86b6ef' };
+const CALL_COMPLETED_EXCL=new Set(['Scheduled','Cancelled']);
+function meetingStatus(m){
+  if((m.canceled_at||'').trim()) return 'Cancelled';
+  const src=((m.status_2||'').trim() || (m.type||'').trim()).toLowerCase();
+  if(!src) return null;
+  if(src.includes('converted')) return 'Converted';
+  if(src.includes('dq')) return 'DQ';
+  if(src.includes('hold')) return 'Hold';
+  if(src.includes('lto')) return 'LTO';
+  if(src.includes('cancel')) return 'Cancelled';
+  if(src.includes('scheduled')) return 'Scheduled';
+  if(src.includes('demo')) return 'Demo';
+  if(src.includes('sync')) return 'Sync-up';
+  if(src.includes('solutioning')) return 'Solutioning';
+  if(src.includes('closing')) return 'Closing';
+  if(src.includes('discovery')) return 'Discovery';
+  return null;
+}
+const psCharts={};
+function psDestroy(id){ if(psCharts[id]){ psCharts[id].destroy(); delete psCharts[id]; } }
+/* label plugins */
+const pctEndLabels={ id:'pctEndLabels', afterDatasetsDraw(chart){
+  const {ctx}=chart, meta=chart.getDatasetMeta(0), counts=chart.$counts||[], tot=chart.$total||0;
+  ctx.save(); ctx.font='700 11px system-ui,-apple-system,sans-serif'; ctx.textBaseline='middle';
+  meta.data.forEach((bar,i)=>{ const v=counts[i]||0; if(!v) return;
+    const pct=tot?Math.round(v/tot*100):0, label=`${v} · ${pct}%`, w=ctx.measureText(label).width, barLen=bar.x-bar.base;
+    if(barLen>w+16){ ctx.fillStyle='#fff'; ctx.textAlign='right'; ctx.fillText(label,bar.x-8,bar.y); }
+    else { ctx.fillStyle=css('--ink2'); ctx.textAlign='left'; ctx.fillText(label,bar.x+8,bar.y); }
+  }); ctx.restore();
+}};
+const countTopLabels={ id:'countTopLabels', afterDatasetsDraw(chart){
+  const {ctx}=chart, meta=chart.getDatasetMeta(0);
+  ctx.save(); ctx.font='700 11px system-ui,-apple-system,sans-serif'; ctx.textAlign='center'; ctx.textBaseline='bottom'; ctx.fillStyle=css('--ink');
+  meta.data.forEach((bar,i)=>{ const v=chart.data.datasets[0].data[i]; if(!v) return; ctx.fillText(v, bar.x, bar.y-4); });
+  ctx.restore();
+}};
+/* meetings drill-down (reuses the overlay) */
+function openMeetingsModal(title, sub, list){
+  document.getElementById('mTitle').textContent=title;
+  document.getElementById('mSub').textContent=sub;
+  let h;
+  if(!list.length){ h='<p class="nodata" style="padding:18px">No meetings.</p>'; }
+  else {
+    h='<table class="dl"><thead><tr><th class="dealcell">Meeting</th><th>Date</th><th>Status</th><th>BDR</th><th>Source</th></tr></thead><tbody>';
+    list.slice().sort((a,b)=>((b.start||'')+'').localeCompare((a.start||'')+'')).forEach(m=>{
+      const nm=m.title||'(untitled)';
+      const nameCell = (m.link||'').trim() ? `<a class="dname" href="${esc(m.link)}" target="_blank" rel="noopener">${esc(nm)}</a>` : esc(nm);
+      h+=`<tr><td class="dealcell">${nameCell}</td><td>${fmtDate(m.start)}</td>`+
+        `<td>${esc(meetingStatus(m)||'—')}</td><td>${esc((m.bdr_name||'').trim()||'—')}</td>`+
+        `<td>${esc((m.meeting_source||'').trim()||'—')}</td></tr>`;
+    });
+    h+='</tbody></table>';
+  }
+  document.getElementById('mBody').innerHTML=h;
+  document.getElementById('overlay').classList.add('open');
+}
+function renderPresales(){
+  const t=chartTheme();
+  const r=rangeOf(presalesRange);
+  const st=(m)=>meetingStatus(m);
+  const inR=(m)=>{ const dt=parseDate(m.start); return dt && dt>=r.start && dt<r.end; };
+  const inRange=DATA.meetings.filter(m=>st(m) && inR(m));
+  const counts={}; inRange.forEach(m=>{ const s=st(m); counts[s]=(counts[s]||0)+1; });
+  const completed=inRange.filter(m=>!CALL_COMPLETED_EXCL.has(st(m)));
+  const converted=completed.filter(m=>st(m)==='Converted').length;
+  const total=inRange.length, comp=completed.length, sched=counts['Scheduled']||0, canc=counts['Cancelled']||0;
+  const convRate=comp?Math.round(converted/comp*100):0;
+
+  const items=[
+    {label:'Total calls',val:total.toLocaleString(),sub:'with a status, in range'},
+    {label:'Completed',val:comp.toLocaleString(),sub:'excl. scheduled & cancelled'},
+    {label:'Conversion rate',val:convRate+'%',sub:`${converted} converted of ${comp}`},
+    {label:'Scheduled',val:sched.toLocaleString(),sub:'upcoming (in range)'},
+    {label:'Cancelled',val:canc.toLocaleString(),sub:'in range'},
+  ];
+  document.getElementById('psKpis').innerHTML=items.map(k=>
+    `<div class="kpi"><div class="label">${k.label}</div><div class="val">${k.val}</div><div class="sub">${k.sub}</div></div>`).join('');
+
+  // Calls by status (all statuses, in range)
+  const statusOrder=['Scheduled','Converted','DQ','Hold','LTO','Demo','Sync-up','Solutioning','Closing','Cancelled'].filter(s=>counts[s]);
+  document.getElementById('psStatusSub').textContent=`${rangeLabelFor(presalesRange)} · ${total} calls`;
+  psDestroy('c_psStatus');
+  psCharts['c_psStatus']=new Chart(document.getElementById('c_psStatus'),{type:'bar',
+    data:{labels:statusOrder,datasets:[{data:statusOrder.map(s=>counts[s]),backgroundColor:statusOrder.map(s=>CALL_STATUS_COLOR[s]||'#888'),borderRadius:4,borderSkipped:false,maxBarThickness:46}]},
+    options:{responsive:true,maintainAspectRatio:false,animation:{duration:300},layout:{padding:{top:18}},
+      onClick:(e,els)=>{ if(!els.length) return; const s=statusOrder[els[0].index]; const l=inRange.filter(m=>st(m)===s);
+        openMeetingsModal(`${s} calls · ${rangeLabelFor(presalesRange)}`, `${l.length} meetings`, l); },
+      onHover:(e,els)=>{ e.native.target.style.cursor=els.length?'pointer':'default'; },
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:(c)=>c.parsed.y+' calls'}}},
+      scales:{x:{grid:{color:'transparent',drawBorder:false},ticks:{color:t.ink2,font:{size:11}}},
+        y:{beginAtZero:true,grid:{color:t.grid,drawBorder:false},ticks:{color:t.muted,font:{size:11}}}}},
+    plugins:[countTopLabels]});
+
+  // Completed by outcome (# and %)
+  const outCounts={}; completed.forEach(m=>{ const s=st(m); outCounts[s]=(outCounts[s]||0)+1; });
+  const outs=Object.keys(outCounts).sort((a,b)=>outCounts[b]-outCounts[a]);
+  document.getElementById('psOutcomeSub').textContent=`${comp} completed · share of completed`;
+  psDestroy('c_psOutcome');
+  const oc=new Chart(document.getElementById('c_psOutcome'),{type:'bar',
+    data:{labels:outs,datasets:[{data:outs.map(s=>outCounts[s]),backgroundColor:outs.map(s=>CALL_STATUS_COLOR[s]||'#888'),borderRadius:4,borderSkipped:false,maxBarThickness:36}]},
+    options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',animation:{duration:300},layout:{padding:{right:130}},
+      onClick:(e,els)=>{ if(!els.length) return; const s=outs[els[0].index]; const l=completed.filter(m=>st(m)===s);
+        openMeetingsModal(`${s} · completed calls · ${rangeLabelFor(presalesRange)}`, `${l.length} meetings`, l); },
+      onHover:(e,els)=>{ e.native.target.style.cursor=els.length?'pointer':'default'; },
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:(c)=>{const v=c.parsed.x;return `${v} · ${comp?Math.round(v/comp*100):0}% of completed`;}}}},
+      scales:{x:{beginAtZero:true,grid:{color:t.grid,drawBorder:false},ticks:{color:t.muted,font:{size:11}}},
+        y:{grid:{color:'transparent',drawBorder:false},ticks:{color:t.ink2,font:{size:12}}}}},
+    plugins:[pctEndLabels]});
+  oc.$counts=outs.map(s=>outCounts[s]); oc.$total=comp; oc.update();
+  psCharts['c_psOutcome']=oc;
+
+  // Upcoming — next 5 weeks & next 3 months (future, not cancelled)
+  const now=new Date(); now.setHours(0,0,0,0);
+  const notCanc=DATA.meetings.filter(m=>!(m.canceled_at||'').trim());
+  const mon=startOfWeek(now), wLabels=[], wCounts=[], wDeals=[];
+  for(let i=0;i<5;i++){ const s=new Date(mon); s.setDate(s.getDate()+7*i); const e=new Date(s); e.setDate(e.getDate()+7);
+    const lo=i===0?now:s; const dl=notCanc.filter(m=>{const dt=parseDate(m.start);return dt&&dt>=lo&&dt<e;});
+    wLabels.push(s.toLocaleDateString(undefined,{month:'short',day:'numeric'})); wCounts.push(dl.length); wDeals.push(dl); }
+  document.getElementById('psWkSub').textContent=`${wCounts.reduce((a,b)=>a+b,0)} meetings`;
+  psDestroy('c_psUpWeek');
+  psCharts['c_psUpWeek']=new Chart(document.getElementById('c_psUpWeek'),{type:'bar',
+    data:{labels:wLabels,datasets:[{data:wCounts,backgroundColor:'#2a78d6',borderRadius:4,borderSkipped:false,maxBarThickness:52}]},
+    options:{responsive:true,maintainAspectRatio:false,animation:{duration:300},layout:{padding:{top:18}},
+      onClick:(e,els)=>{ if(!els.length) return; const i=els[0].index;
+        openMeetingsModal(`Upcoming · week of ${wLabels[i]}`, `${wDeals[i].length} meetings`, wDeals[i]); },
+      onHover:(e,els)=>{ e.native.target.style.cursor=els.length?'pointer':'default'; },
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:(c)=>c.parsed.y+' meetings'}}},
+      scales:{x:{grid:{color:'transparent',drawBorder:false},ticks:{color:t.ink2,font:{size:11}}},y:{beginAtZero:true,grid:{color:t.grid,drawBorder:false},ticks:{color:t.muted,font:{size:11}}}}},
+    plugins:[countTopLabels]});
+
+  const mLabels=[], mCounts=[], mDeals=[];
+  for(let i=0;i<3;i++){ const s=new Date(now.getFullYear(), now.getMonth()+i, 1); const e=new Date(s.getFullYear(), s.getMonth()+1, 1);
+    const lo=i===0?now:s; const dl=notCanc.filter(m=>{const dt=parseDate(m.start);return dt&&dt>=lo&&dt<e;});
+    mLabels.push(s.toLocaleDateString(undefined,{month:'short'})+" '"+String(s.getFullYear()).slice(2)); mCounts.push(dl.length); mDeals.push(dl); }
+  document.getElementById('psMoSub').textContent=`${mCounts.reduce((a,b)=>a+b,0)} meetings`;
+  psDestroy('c_psUpMonth');
+  psCharts['c_psUpMonth']=new Chart(document.getElementById('c_psUpMonth'),{type:'bar',
+    data:{labels:mLabels,datasets:[{data:mCounts,backgroundColor:'#1c5cab',borderRadius:4,borderSkipped:false,maxBarThickness:70}]},
+    options:{responsive:true,maintainAspectRatio:false,animation:{duration:300},layout:{padding:{top:18}},
+      onClick:(e,els)=>{ if(!els.length) return; const i=els[0].index;
+        openMeetingsModal(`Upcoming · ${mLabels[i]}`, `${mDeals[i].length} meetings`, mDeals[i]); },
+      onHover:(e,els)=>{ e.native.target.style.cursor=els.length?'pointer':'default'; },
+      plugins:{legend:{display:false},tooltip:{callbacks:{label:(c)=>c.parsed.y+' meetings'}}},
+      scales:{x:{grid:{color:'transparent',drawBorder:false},ticks:{color:t.ink2,font:{size:12}}},y:{beginAtZero:true,grid:{color:t.grid,drawBorder:false},ticks:{color:t.muted,font:{size:11}}}}},
+    plugins:[countTopLabels]});
+}
+
+/* ============================ VIEW SWITCH ============================ */
+let activeView='sales';
+function renderActive(){ if(activeView==='presales') renderPresales(); else renderAll(); }
+function showView(v){
+  activeView=v;
+  document.getElementById('view-sales').style.display = v==='sales'?'':'none';
+  document.getElementById('view-presales').style.display = v==='presales'?'':'none';
+  document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.view===v));
+  document.getElementById('viewSub').textContent = v==='presales'
+    ? 'Live from Google Sheets · meetings (pre-sales)' : 'Live from Google Sheets · deals, meetings & partners';
+  renderActive();
+}
+
 /* ============================ RENDER ALL ============================ */
 function renderAll(){
   renderKPIs();
@@ -1144,7 +1348,7 @@ async function refresh(){
     partnerName={}; partners.forEach(p=>{if(p.id)partnerName[p.id]=p.name;});
     // owner_id -> Name from the `user` tab (sole source of truth). Keep prior map if fetch empty.
     if(users && users.length){ userMap={}; users.forEach(u=>{ const id=(u['User ID']||'').trim(); if(id) userMap[id]=(u['Name']||'').trim()||id; }); }
-    updateScopeHint(); renderAll();
+    updateScopeHint(); renderActive();
     dot.classList.remove('err'); st.textContent="Live";
     document.getElementById('updated').textContent="updated "+new Date().toLocaleTimeString();
   }catch(e){ dot.classList.add('err'); st.textContent="Fetch error — retrying"; console.error(e); }
@@ -1172,10 +1376,12 @@ buildScopeToggle();
 renderRangeBar(document.getElementById('rangeBar'), perfRange, renderKPIs);
 renderRangeBar(document.getElementById('createdRangeBar'), createdRange, renderCreatedTable);
 renderRangeBar(document.getElementById('wonOwnerRangeBar'), wonOwnerRange, renderWonByOwner);
+renderRangeBar(document.getElementById('presalesRangeBar'), presalesRange, renderPresales);
+document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>showView(b.dataset.view));
 refresh();
 setInterval(refresh, REFRESH_MS);
 document.getElementById('refreshBtn').addEventListener('click',refresh);
-window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>renderAll());
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>renderActive());
 
 /* drill-down: open a deal list when a numeric table cell is clicked */
 document.addEventListener('click',(e)=>{
