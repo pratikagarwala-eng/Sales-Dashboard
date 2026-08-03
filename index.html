@@ -221,7 +221,7 @@
   </header>
 
   <div class="scopebar">
-    <label class="checkctl"><input type="checkbox" id="scopeChk" checked> Include StarFish deals</label>
+    <label class="checkctl"><input type="checkbox" id="scopeChk"> Include StarFish deals</label>
     <span class="hint" id="scopeHint"></span>
   </div>
 
@@ -268,6 +268,13 @@
   <div class="card">
     <div class="chead"><h3>Closed Won by source &middot; this year</h3><span class="hint" id="revSrcSub">Each bar shows won amount &amp; deal count</span></div>
     <div class="canvas-wrap"><canvas id="c_revSource"></canvas></div>
+  </div>
+
+  <div class="section-label">Closed Won by owner</div>
+  <div class="card">
+    <div class="chead"><h3>Closed Won by owner</h3><span class="hint" id="wonOwnerSub">Each bar shows won amount &amp; deal count</span></div>
+    <div class="filterbar"><span class="flabel">Won in</span><div class="rangebar" id="wonOwnerRangeBar"></div></div>
+    <div class="canvas-wrap"><canvas id="c_wonOwner"></canvas></div>
   </div>
 
   <div class="section-label">Deals by owner, at each stage</div>
@@ -396,7 +403,7 @@ const CLARIFY=(id)=>`https://app.clarify.ai/workspaces/sprouts-ai/objects/deal/r
 /* ============================ STATE ============================ */
 let DATA={deals:[],meetings:[],partners:[]};
 let rawDeals=[];                 // all fetched deals (before StarFish scope)
-let includeStarFish=true;        // global scope toggle
+let includeStarFish=false;       // global scope toggle (StarFish excluded by default)
 const isStarFish=(d)=>/starfish/i.test(d.name||"");
 function applyDealScope(){ DATA.deals = includeStarFish ? rawDeals : rawDeals.filter(d=>!isStarFish(d)); }
 let partnerName={};
@@ -877,11 +884,48 @@ function renderRevenueBySource(){
   revSrcChart.update();
 }
 
+/* ============================ CLOSED WON BY OWNER (own date range) ============================ */
+let wonOwnerChart=null;
+function renderWonByOwner(){
+  const t=chartTheme();
+  const r=rangeOf(wonOwnerRange);
+  const won=DATA.deals.filter(d=>{ if(d.stage!==WON) return false; const dt=parseDate(d.close_date); return dt && dt>=r.start && dt<r.end; });
+  const g={};
+  won.forEach(d=>{ const o=ownerName(d); (g[o]=g[o]||{amount:0,count:0,deals:[]}); g[o].amount+=num(d.amount); g[o].count++; g[o].deals.push(d); });
+  const order=ownerOrder();
+  const owners=Object.keys(g).sort((a,b)=>g[b].amount-g[a].amount);
+  const colorOf=(o)=>OWNER_COLOR[o]||CATOWN[order.indexOf(o)%CATOWN.length];
+  const amounts=owners.map(o=>g[o].amount), counts=owners.map(o=>g[o].count);
+  const totAmt=amounts.reduce((a,b)=>a+b,0), totCnt=counts.reduce((a,b)=>a+b,0);
+  document.getElementById('wonOwnerSub').textContent=`${rangeLabelFor(wonOwnerRange)} · ${totCnt} won deals · ${money(totAmt)} · each bar: amount & count`;
+  if(wonOwnerChart) wonOwnerChart.destroy();
+  if(!owners.length) return;
+  wonOwnerChart=new Chart(document.getElementById('c_wonOwner'),{type:'bar',
+    data:{labels:owners,datasets:[{data:amounts,backgroundColor:owners.map(colorOf),borderRadius:4,borderSkipped:false,maxBarThickness:34}]},
+    options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',animation:{duration:300},
+      layout:{padding:{right:160}},
+      onClick:(e,els)=>{ if(!els.length) return; const o=owners[els[0].index];
+        const list=g[o].deals.slice().sort((a,b)=>num(b.amount)-num(a.amount));
+        openDealsModal(`Closed Won · ${o} · ${rangeLabelFor(wonOwnerRange)}`, `${list.length} deal${list.length===1?'':'s'} · ${money(g[o].amount)}`, list); },
+      onHover:(e,els)=>{ e.native.target.style.cursor = els.length?'pointer':'default'; },
+      plugins:{legend:{display:false},
+        tooltip:{callbacks:{label:(ctx)=>{const i=ctx.dataIndex;return "  "+counts[i].toLocaleString()+" deals   ·   "+money(amounts[i]);}}}},
+      scales:{
+        x:{grid:{color:t.grid,drawBorder:false},ticks:{color:t.muted,font:{size:11},callback:(v)=>money(v)},
+          title:{display:true,text:'Won amount',color:t.muted,font:{size:11}}},
+        y:{grid:{color:'transparent',drawBorder:false},ticks:{color:t.ink2,font:{size:12}}}
+      }},
+    plugins:[barBoth]});
+  wonOwnerChart.$counts=counts; wonOwnerChart.$amounts=amounts;
+  wonOwnerChart.update();
+}
+
 /* ============================ KPIs (time-range driven) ============================ */
 const RANGES=[['thisWeek','This week'],['lastWeek','Last week'],['thisMonth','This month'],
   ['lastMonth','Last month'],['thisQuarter','This quarter'],['lastQuarter','Last quarter'],['thisYear','This year']];
 const perfRange={range:'thisYear',customStart:null,customEnd:null};      // Performance stats
 const createdRange={range:'thisYear',customStart:null,customEnd:null};   // Created-in-range table
+const wonOwnerRange={range:'thisYear',customStart:null,customEnd:null};  // Closed Won by owner
 const toISO=(d)=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 function computeRange(key, cs, ce){
   const now=new Date(); now.setHours(0,0,0,0);
@@ -1064,6 +1108,7 @@ function renderAll(){
   renderWonQuarter();
   renderWonWeek();
   renderRevenueBySource();
+  renderWonByOwner();
   renderAeIndia();
   renderPartner();
 }
@@ -1126,6 +1171,7 @@ buildWonControls();
 buildScopeToggle();
 renderRangeBar(document.getElementById('rangeBar'), perfRange, renderKPIs);
 renderRangeBar(document.getElementById('createdRangeBar'), createdRange, renderCreatedTable);
+renderRangeBar(document.getElementById('wonOwnerRangeBar'), wonOwnerRange, renderWonByOwner);
 refresh();
 setInterval(refresh, REFRESH_MS);
 document.getElementById('refreshBtn').addEventListener('click',refresh);
