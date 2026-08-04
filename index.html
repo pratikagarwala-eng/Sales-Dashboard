@@ -320,14 +320,24 @@
   </div><!-- /view-sales -->
 
   <div id="view-presales" style="display:none">
-    <div class="section-label">Discovery calls &mdash; outcomes</div>
+    <div class="section-label">Discovery calls &mdash; overview</div>
     <div class="statpanel">
-      <div class="statpanel-head"><span class="statpanel-title">Calls in range</span><div class="rangebar" id="presalesRangeBar"></div></div>
+      <div class="statpanel-head"><span class="statpanel-title">Discovery calls</span><div class="rangebar" id="psKpiRangeBar"></div></div>
       <div class="kpis" id="psKpis"></div>
     </div>
+
+    <div class="section-label">Completed calls by outcome</div>
     <div class="card">
       <div class="chead"><h3>Completed discovery calls by outcome</h3><span class="hint" id="psOutcomeSub"></span></div>
+      <div class="filterbar"><span class="flabel">In</span><div class="rangebar" id="psOutcomeRangeBar"></div></div>
       <div class="canvas-wrap"><canvas id="c_psOutcome"></canvas></div>
+    </div>
+
+    <div class="section-label">Discovery calls by BDR</div>
+    <div class="card">
+      <div class="chead"><h3>BDR &times; discovery calls</h3><span class="hint" id="psBdrSub"></span></div>
+      <div class="filterbar"><span class="flabel">In</span><div class="rangebar" id="psBdrRangeBar"></div></div>
+      <div class="tbl-scroll" id="t_psBdr"></div>
     </div>
 
     <div class="section-label">Upcoming discovery calls</div>
@@ -1132,7 +1142,9 @@ function renderLostTable(){
 }
 
 /* ============================ PRE-SALES (meetings) ============================ */
-const presalesRange={range:'thisYear',customStart:null,customEnd:null};
+const psKpiRange={range:'thisYear',customStart:null,customEnd:null};      // overview KPIs
+const psOutcomeRange={range:'thisYear',customStart:null,customEnd:null};  // completed-by-outcome
+const psBdrRange={range:'thisYear',customStart:null,customEnd:null};      // BDR table
 const CALL_STATUS_COLOR={ Converted:'#0ca30c', DQ:'#5c6270', Hold:'#e8933a', LTO:'#94a3b8',
   Scheduled:'#2a78d6', Cancelled:'#b7b7b7', Demo:'#1baf7a', 'Sync-up':'#4a3aa7',
   Solutioning:'#8ab52f', Closing:'#184f95', Discovery:'#86b6ef' };
@@ -1193,20 +1205,20 @@ function openMeetingsModal(title, sub, list){
   document.getElementById('mBody').innerHTML=h;
   document.getElementById('overlay').classList.add('open');
 }
-function renderPresales(){
-  const t=chartTheme();
-  const r=rangeOf(presalesRange);
-  const st=(m)=>meetingStatus(m);
-  const inR=(m)=>{ const dt=parseDate(m.start); return dt && dt>=r.start && dt<r.end; };
-  // Baseline: discovery-type calls only
-  const disc=DATA.meetings.filter(isDiscovery);
-  const inRange=disc.filter(m=>st(m) && inR(m));
-  const counts={}; inRange.forEach(m=>{ const s=st(m); counts[s]=(counts[s]||0)+1; });
-  const completed=inRange.filter(m=>CALL_OUTCOMES.includes(st(m)));
-  const converted=completed.filter(m=>st(m)==='Converted').length;
+/* discovery calls (with a status) filtered by the given range */
+function psDiscInRange(rng){
+  const r=rangeOf(rng);
+  return DATA.meetings.filter(m=>{ if(!isDiscovery(m)||!meetingStatus(m)) return false;
+    const dt=parseDate(m.start); return dt && dt>=r.start && dt<r.end; });
+}
+const psStatus=(m)=>meetingStatus(m);
+function renderPsKpis(){
+  const inRange=psDiscInRange(psKpiRange);
+  const counts={}; inRange.forEach(m=>{ const s=psStatus(m); counts[s]=(counts[s]||0)+1; });
+  const completed=inRange.filter(m=>CALL_OUTCOMES.includes(psStatus(m)));
+  const converted=completed.filter(m=>psStatus(m)==='Converted').length;
   const total=inRange.length, comp=completed.length, sched=counts['Scheduled']||0, canc=counts['Cancelled']||0;
   const convRate=comp?Math.round(converted/comp*100):0;
-
   const items=[
     {label:'Discovery calls',val:total.toLocaleString(),sub:'in range'},
     {label:'Completed',val:comp.toLocaleString(),sub:'with an outcome'},
@@ -1216,17 +1228,21 @@ function renderPresales(){
   ];
   document.getElementById('psKpis').innerHTML=items.map(k=>
     `<div class="kpi"><div class="label">${k.label}</div><div class="val">${k.val}</div><div class="sub">${k.sub}</div></div>`).join('');
-
-  // Completed by outcome (# and %)
-  const outCounts={}; completed.forEach(m=>{ const s=st(m); outCounts[s]=(outCounts[s]||0)+1; });
+}
+function renderPsOutcome(){
+  const t=chartTheme();
+  const inRange=psDiscInRange(psOutcomeRange);
+  const completed=inRange.filter(m=>CALL_OUTCOMES.includes(psStatus(m)));
+  const comp=completed.length;
+  const outCounts={}; completed.forEach(m=>{ const s=psStatus(m); outCounts[s]=(outCounts[s]||0)+1; });
   const outs=Object.keys(outCounts).sort((a,b)=>outCounts[b]-outCounts[a]);
-  document.getElementById('psOutcomeSub').textContent=`${rangeLabelFor(presalesRange)} · ${comp} completed · share of completed`;
+  document.getElementById('psOutcomeSub').textContent=`${rangeLabelFor(psOutcomeRange)} · ${comp} completed · share of completed`;
   psDestroy('c_psOutcome');
   const oc=new Chart(document.getElementById('c_psOutcome'),{type:'bar',
     data:{labels:outs,datasets:[{data:outs.map(s=>outCounts[s]),backgroundColor:outs.map(s=>CALL_STATUS_COLOR[s]||'#888'),borderRadius:4,borderSkipped:false,maxBarThickness:36}]},
     options:{responsive:true,maintainAspectRatio:false,indexAxis:'y',animation:{duration:300},layout:{padding:{right:130}},
-      onClick:(e,els)=>{ if(!els.length) return; const s=outs[els[0].index]; const l=completed.filter(m=>st(m)===s);
-        openMeetingsModal(`${s} · completed calls · ${rangeLabelFor(presalesRange)}`, `${l.length} meetings`, l); },
+      onClick:(e,els)=>{ if(!els.length) return; const s=outs[els[0].index]; const l=completed.filter(m=>psStatus(m)===s);
+        openMeetingsModal(`${s} · completed calls · ${rangeLabelFor(psOutcomeRange)}`, `${l.length} meetings`, l); },
       onHover:(e,els)=>{ e.native.target.style.cursor=els.length?'pointer':'default'; },
       plugins:{legend:{display:false},tooltip:{callbacks:{label:(c)=>{const v=c.parsed.x;return `${v} · ${comp?Math.round(v/comp*100):0}% of completed`;}}}},
       scales:{x:{beginAtZero:true,grid:{color:t.grid,drawBorder:false},ticks:{color:t.muted,font:{size:11}}},
@@ -1234,10 +1250,43 @@ function renderPresales(){
     plugins:[pctEndLabels]});
   oc.$counts=outs.map(s=>outCounts[s]); oc.$total=comp; oc.update();
   psCharts['c_psOutcome']=oc;
-
-  // Upcoming discovery calls — next 5 weeks & next 3 months (future, not cancelled)
+}
+function renderPsBdr(){
+  const host=document.getElementById('t_psBdr');
+  const inRange=psDiscInRange(psBdrRange);
+  document.getElementById('psBdrSub').textContent=`${rangeLabelFor(psBdrRange)} · ${inRange.length} discovery calls`;
+  const bdrOf=(m)=>((m.bdr_name||'').trim())||'Unassigned';
+  const cell={}, keys=new Set();
+  inRange.forEach(m=>{ const b=bdrOf(m), s=psStatus(m); keys.add(b); (cell[b]=cell[b]||{})[s]=(cell[b][s]||0)+1; });
+  const STORDER=['Scheduled','Converted','DQ','Hold','LTO','Discovery','Cancelled'], STLABEL={Discovery:'No outcome'};
+  const cols=STORDER.filter(s=>[...keys].some(b=>cell[b][s]));
+  const booked=(b)=>Object.values(cell[b]).reduce((a,c)=>a+c,0);
+  const completedC=(b)=>CALL_OUTCOMES.reduce((a,s)=>a+(cell[b][s]||0),0);
+  const rows=[...keys].sort((a,b)=>booked(b)-booked(a));
+  if(!rows.length){ host.innerHTML='<p class="nodata">No discovery calls in the selected range.</p>'; return; }
+  const colTot=(s)=>rows.reduce((a,b)=>a+(cell[b][s]||0),0);
+  const gBooked=rows.reduce((a,b)=>a+booked(b),0), gCompleted=rows.reduce((a,b)=>a+completedC(b),0);
+  const numCell=(n,cls,bdr,stg)=> n? `<td class="clk psclk ${cls||''}" data-bdr="${esc(bdr)}" data-stg="${esc(stg)}"><div class="c">${n}</div></td>` : `<td class="${cls||''} z">–</td>`;
+  let h='<table class="st"><thead><tr><th>BDR</th><th class="tot">Booked</th><th class="tot">Completed</th>';
+  cols.forEach(s=>{h+=`<th><span class="stagehead"><span class="sw" style="background:${CALL_STATUS_COLOR[s]||'#888'}"></span>${STLABEL[s]||s}</span></th>`;});
+  h+='</tr></thead><tbody><tr class="totrow"><td>Total</td>'+numCell(gBooked,'tot','*','*booked')+numCell(gCompleted,'tot','*','*completed');
+  cols.forEach(s=>{h+=numCell(colTot(s),'','*',s);}); h+='</tr>';
+  rows.forEach(b=>{ h+='<tr><td>'+esc(b)+'</td>'+numCell(booked(b),'tot',b,'*booked')+numCell(completedC(b),'tot',b,'*completed');
+    cols.forEach(s=>{h+=numCell(cell[b][s]||0,'',b,s);}); h+='</tr>'; });
+  h+='</tbody></table>';
+  host.innerHTML=h;
+  host.querySelectorAll('td.psclk').forEach(td=>td.onclick=()=>{
+    const bdr=td.dataset.bdr, stg=td.dataset.stg;
+    let l=inRange.filter(m=>bdr==='*'||bdrOf(m)===bdr);
+    if(stg==='*completed') l=l.filter(m=>CALL_OUTCOMES.includes(psStatus(m)));
+    else if(stg!=='*booked') l=l.filter(m=>psStatus(m)===stg);
+    openMeetingsModal(`${bdr==='*'?'All BDRs':bdr} · ${stg==='*booked'?'booked':stg==='*completed'?'completed':(STLABEL[stg]||stg)} · ${rangeLabelFor(psBdrRange)}`, `${l.length} meetings`, l);
+  });
+}
+function renderPsUpcoming(){
+  const t=chartTheme();
   const now=new Date(); now.setHours(0,0,0,0);
-  const notCanc=disc.filter(m=>!(m.canceled_at||'').trim());
+  const notCanc=DATA.meetings.filter(m=>isDiscovery(m) && !(m.canceled_at||'').trim());
   const mon=startOfWeek(now), wLabels=[], wCounts=[], wDeals=[];
   for(let i=0;i<5;i++){ const s=new Date(mon); s.setDate(s.getDate()+7*i); const e=new Date(s); e.setDate(e.getDate()+7);
     const lo=i===0?now:s; const dl=notCanc.filter(m=>{const dt=parseDate(m.start);return dt&&dt>=lo&&dt<e;});
@@ -1270,6 +1319,7 @@ function renderPresales(){
       scales:{x:{grid:{color:'transparent',drawBorder:false},ticks:{color:t.ink2,font:{size:12}}},y:{beginAtZero:true,grid:{color:t.grid,drawBorder:false},ticks:{color:t.muted,font:{size:11}}}}},
     plugins:[countTopLabels]});
 }
+function renderPresales(){ renderPsKpis(); renderPsOutcome(); renderPsBdr(); renderPsUpcoming(); }
 
 /* ============================ VIEW SWITCH ============================ */
 let activeView='sales';
@@ -1358,7 +1408,9 @@ buildScopeToggle();
 renderRangeBar(document.getElementById('rangeBar'), perfRange, renderKPIs);
 renderRangeBar(document.getElementById('createdRangeBar'), createdRange, renderCreatedTable);
 renderRangeBar(document.getElementById('wonOwnerRangeBar'), wonOwnerRange, renderWonByOwner);
-renderRangeBar(document.getElementById('presalesRangeBar'), presalesRange, renderPresales);
+renderRangeBar(document.getElementById('psKpiRangeBar'), psKpiRange, renderPsKpis);
+renderRangeBar(document.getElementById('psOutcomeRangeBar'), psOutcomeRange, renderPsOutcome);
+renderRangeBar(document.getElementById('psBdrRangeBar'), psBdrRange, renderPsBdr);
 document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>showView(b.dataset.view));
 refresh();
 setInterval(refresh, REFRESH_MS);
