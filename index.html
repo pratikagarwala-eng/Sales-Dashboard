@@ -161,6 +161,14 @@
   table.st tr.totrow td{font-weight:700;border-bottom:2px solid var(--axis);background:color-mix(in srgb,var(--accent) 6%,var(--surface));}
   table.st tr.totrow td:first-child{background:color-mix(in srgb,var(--accent) 6%,var(--surface));}
   table.st tr.totrow td .c{color:var(--ink);}
+  /* BDR two-row grouped header (of booked / of completed) */
+  table.st.psbdr th{position:static;}
+  table.st.psbdr th.grp{text-align:center;font-size:10px;font-weight:700;color:var(--muted);border-bottom:1px solid var(--grid);padding-bottom:4px;}
+  table.st.psbdr th.grpc{color:var(--good);}
+  table.st.psbdr th.cgrp,table.st.psbdr td.cgrp{background:color-mix(in srgb,var(--good) 6%,var(--surface));}
+  table.st.psbdr tr.totrow td.cgrp{background:color-mix(in srgb,var(--good) 12%,var(--surface));}
+  table.st.psbdr th.cstart,table.st.psbdr td.cstart{border-left:2px solid color-mix(in srgb,var(--good) 55%,var(--border));}
+  table.st.psbdr td.cgrp .c{color:var(--good);}
   .nodata{color:var(--muted);padding:14px 6px;}
 
   /* clickable cells + drill-down modal */
@@ -1254,29 +1262,61 @@ function renderPsOutcome(){
 function renderPsBdr(){
   const host=document.getElementById('t_psBdr');
   const inRange=psDiscInRange(psBdrRange);
-  document.getElementById('psBdrSub').textContent=`${rangeLabelFor(psBdrRange)} · ${inRange.length} discovery calls`;
+  document.getElementById('psBdrSub').textContent=`${rangeLabelFor(psBdrRange)} · ${inRange.length} discovery calls · count & %`;
   const bdrOf=(m)=>((m.bdr_name||'').trim())||'Unassigned';
   const cell={}, keys=new Set();
   inRange.forEach(m=>{ const b=bdrOf(m), s=psStatus(m); keys.add(b); (cell[b]=cell[b]||{})[s]=(cell[b][s]||0)+1; });
-  const STORDER=['Scheduled','Converted','DQ','Hold','LTO','Discovery','Cancelled'], STLABEL={Discovery:'No outcome'};
-  const cols=STORDER.filter(s=>[...keys].some(b=>cell[b][s]));
-  const booked=(b)=>Object.values(cell[b]).reduce((a,c)=>a+c,0);
-  const completedC=(b)=>CALL_OUTCOMES.reduce((a,s)=>a+(cell[b][s]||0),0);
+  const cnt=(b,s)=>cell[b]?.[s]||0;
+  const booked=(b)=>Object.values(cell[b]||{}).reduce((a,c)=>a+c,0);
+  const completedC=(b)=>CALL_OUTCOMES.reduce((a,s)=>a+cnt(b,s),0);
   const rows=[...keys].sort((a,b)=>booked(b)-booked(a));
   if(!rows.length){ host.innerHTML='<p class="nodata">No discovery calls in the selected range.</p>'; return; }
-  const colTot=(s)=>rows.reduce((a,b)=>a+(cell[b][s]||0),0);
-  const gBooked=rows.reduce((a,b)=>a+booked(b),0), gCompleted=rows.reduce((a,b)=>a+completedC(b),0);
-  const numCell=(n,cls,bdr,stg)=> n? `<td class="clk psclk ${cls||''}" data-bdr="${esc(bdr)}" data-stg="${esc(stg)}"><div class="c">${n}</div></td>` : `<td class="${cls||''} z">–</td>`;
-  let h='<table class="st"><thead><tr><th>BDR</th><th class="tot">Booked</th><th class="tot">Completed</th>';
-  cols.forEach(s=>{h+=`<th><span class="stagehead"><span class="sw" style="background:${CALL_STATUS_COLOR[s]||'#888'}"></span>${STLABEL[s]||s}</span></th>`;});
-  h+='</tr></thead><tbody><tr class="totrow"><td>Total</td>'+numCell(gBooked,'tot','*','*booked')+numCell(gCompleted,'tot','*','*completed');
-  cols.forEach(s=>{h+=numCell(colTot(s),'','*',s);}); h+='</tr>';
-  rows.forEach(b=>{ h+='<tr><td>'+esc(b)+'</td>'+numCell(booked(b),'tot',b,'*booked')+numCell(completedC(b),'tot',b,'*completed');
-    cols.forEach(s=>{h+=numCell(cell[b][s]||0,'',b,s);}); h+='</tr>'; });
+  // ordered columns: base=Booked, then %-of-booked group, then %-of-completed group
+  const COLS=[
+    {stg:'Scheduled', label:'Scheduled', base:'booked'},
+    {stg:'Cancelled', label:'Cancelled', base:'booked'},
+    {stg:'*completed', label:'Completed', base:'booked', tot:true},
+    {stg:'Converted', label:'Converted', base:'completed', c:true, start:true},
+    {stg:'DQ', label:'DQ', base:'completed', c:true},
+    {stg:'Hold', label:'Hold', base:'completed', c:true},
+    {stg:'LTO', label:'LTO', base:'completed', c:true},
+    {stg:'Discovery', label:'No outcome', base:'completed', c:true},
+  ];
+  const valOf=(b,stg)=> stg==='*completed'?completedC(b):cnt(b,stg);
+  const baseOf=(b,base)=> base==='booked'?booked(b):completedC(b);
+  const pctS=(n,base)=> base? Math.round(n/base*100)+'%' : '—';
+  const numCell=(n,base,extra,bdr,stg)=>{
+    const cls=(extra||'').trim();
+    if(!n) return `<td class="${cls} z">–</td>`;
+    return `<td class="clk psclk ${cls}" data-bdr="${esc(bdr)}" data-stg="${esc(stg)}"><div class="c">${n}</div><div class="a">${pctS(n,base)}</div></td>`;
+  };
+  const rowHtml=(bdr,label,isTot)=>{
+    const bk=bdr==='*'?rows.reduce((a,b)=>a+booked(b),0):booked(bdr);
+    let r=`<tr${isTot?' class="totrow"':''}><td>${esc(label)}</td>`;
+    r+= bk? `<td class="clk psclk tot" data-bdr="${esc(bdr)}" data-stg="*booked"><div class="c">${bk}</div></td>` : '<td class="tot z">–</td>';
+    COLS.forEach(col=>{
+      const n = bdr==='*' ? rows.reduce((a,b)=>a+valOf(b,col.stg),0) : valOf(bdr,col.stg);
+      const base = bdr==='*'
+        ? (col.base==='booked'? rows.reduce((a,b)=>a+booked(b),0) : rows.reduce((a,b)=>a+completedC(b),0))
+        : baseOf(bdr,col.base);
+      const cls=(col.tot?'tot ':'')+(col.c?'cgrp ':'')+(col.start?'cstart ':'');
+      r+=numCell(n, base, cls, bdr, col.stg);
+    });
+    return r+'</tr>';
+  };
+  let h='<table class="st psbdr"><thead>';
+  h+='<tr><th rowspan="2">BDR</th><th class="tot" rowspan="2">Booked</th>'+
+     '<th class="grp" colspan="3">% of booked</th><th class="grp grpc cstart" colspan="5">% of completed</th></tr>';
+  h+='<tr>';
+  COLS.forEach(col=>{ const cls=(col.tot?'tot ':'')+(col.c?'cgrp ':'')+(col.start?'cstart ':'');
+    h+=`<th class="${cls.trim()}"><span class="stagehead"><span class="sw" style="background:${CALL_STATUS_COLOR[col.stg==='*completed'?'Converted':col.stg]||'#888'}"></span>${col.label}</span></th>`; });
+  h+='</tr></thead><tbody>';
+  h+=rowHtml('*','Total',true);
+  rows.forEach(b=>{ h+=rowHtml(b,b,false); });
   h+='</tbody></table>';
   host.innerHTML=h;
   host.querySelectorAll('td.psclk').forEach(td=>td.onclick=()=>{
-    const bdr=td.dataset.bdr, stg=td.dataset.stg;
+    const bdr=td.dataset.bdr, stg=td.dataset.stg, STLABEL={Discovery:'No outcome'};
     let l=inRange.filter(m=>bdr==='*'||bdrOf(m)===bdr);
     if(stg==='*completed') l=l.filter(m=>CALL_OUTCOMES.includes(psStatus(m)));
     else if(stg!=='*booked') l=l.filter(m=>psStatus(m)===stg);
