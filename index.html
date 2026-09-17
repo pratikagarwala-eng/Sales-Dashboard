@@ -437,6 +437,15 @@ function toObjects(text){
   const head=rows[0];
   return rows.slice(1).map(r=>{const o={};head.forEach((h,idx)=>o[h]=r[idx]??"");return o;});
 }
+/* the source sheet contains duplicate rows (same id repeated); keep first per id */
+function dedupeById(arr){
+  const seen=new Set(); const out=[];
+  for(const r of arr){ const id=(r&&r.id||'').trim();
+    if(id){ if(seen.has(id)) continue; seen.add(id); }
+    out.push(r);
+  }
+  return out;
+}
 
 /* ============================ FORMAT ============================ */
 const num=(x)=>{const n=parseFloat(x);return isNaN(n)?0:n;};
@@ -1416,8 +1425,8 @@ async function refresh(){
       dot.classList.add('err'); st.textContent="Stale — deals fetch empty, retrying";
       startCountdown(); return;
     }
-    rawDeals=deals; DATA={deals,meetings,partners}; applyDealScope();
-    partnerName={}; partners.forEach(p=>{if(p.id)partnerName[p.id]=p.name;});
+    rawDeals=dedupeById(deals); DATA={deals:rawDeals,meetings:dedupeById(meetings),partners:dedupeById(partners)}; applyDealScope();
+    partnerName={}; DATA.partners.forEach(p=>{if(p.id)partnerName[p.id]=p.name;});
     // owner_id -> Name from the `user` tab (sole source of truth). Keep prior map if fetch empty.
     if(users && users.length){ userMap={}; users.forEach(u=>{ const id=(u['User ID']||'').trim(); if(id) userMap[id]=(u['Name']||'').trim()||id; }); }
     updateScopeHint(); renderActive();
